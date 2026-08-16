@@ -1,0 +1,955 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Panel de actividad — Seguridad Electrónica Oeste</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0A0E13;
+    --surface:#121820;
+    --surface-2:#1A222C;
+    --line:#242D38;
+    --text:#E7EDF3;
+    --muted:#8493A3;
+    --signal:#38E1B0;
+    --signal-dim:#1E4F44;
+    --warn:#F5A623;
+    --warn-dim:#4A3A18;
+    --brand:#FF9518;
+    --danger:#F0556B;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'Inter',system-ui,sans-serif;
+    min-height:100vh;
+    background-image:
+      radial-gradient(circle at 10% -10%, rgba(56,225,176,0.06), transparent 40%),
+      radial-gradient(circle at 100% 0%, rgba(255,149,24,0.05), transparent 35%);
+  }
+  .mono{font-family:'JetBrains Mono',monospace;}
+  .display{font-family:'Space Grotesk',sans-serif;}
+
+  /* ---------- Auth screen ---------- */
+  #auth-screen{
+    min-height:100vh;
+    display:flex;
+    align-items:center;
+    justify-content:center;
+    flex-direction:column;
+    gap:22px;
+    padding:24px;
+    text-align:center;
+  }
+  .logo-mark{
+    width:56px;height:56px;border-radius:50%;
+    border:2px solid var(--brand);
+    display:flex;align-items:center;justify-content:center;
+    font-family:'Space Grotesk',sans-serif;font-weight:700;font-size:22px;
+    color:var(--brand);
+  }
+  #auth-screen h1{font-family:'Space Grotesk',sans-serif;font-size:22px;margin:0;font-weight:600;}
+  #auth-screen p{color:var(--muted);margin:0;max-width:340px;font-size:14px;line-height:1.5;}
+  .btn-google{
+    display:flex;align-items:center;gap:10px;
+    background:var(--surface-2);
+    border:1px solid var(--line);
+    color:var(--text);
+    padding:12px 20px;border-radius:10px;
+    font-size:14px;font-weight:500;cursor:pointer;
+    transition:border-color .15s ease, transform .1s ease;
+  }
+  .btn-google:hover{border-color:var(--signal);}
+  .btn-google:active{transform:scale(0.98);}
+  #auth-error{color:var(--danger);font-size:13px;display:none;}
+
+  /* ---------- App shell ---------- */
+  #app{display:none;min-height:100vh;}
+  header.topbar{
+    position:sticky;top:0;z-index:10;
+    display:flex;align-items:center;justify-content:space-between;
+    padding:16px 24px;
+    background:rgba(10,14,19,0.85);
+    backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line);
+    overflow:hidden;
+  }
+  header.topbar::after{
+    content:'';position:absolute;left:0;top:0;height:1px;width:100%;
+    background:linear-gradient(90deg, transparent, var(--signal), transparent);
+    animation:scan 2.4s ease-out 1;
+  }
+  @keyframes scan{
+    0%{transform:translateX(-100%);opacity:0;}
+    15%{opacity:1;}
+    100%{transform:translateX(100%);opacity:0;}
+  }
+  @media (prefers-reduced-motion: reduce){ header.topbar::after{animation:none;} }
+
+  .topbar-left{display:flex;align-items:center;gap:12px;}
+  .app-switcher{
+    display:flex;align-items:center;gap:8px;
+    background:var(--surface);
+    border:1px solid var(--line);
+    padding:6px 12px 6px 6px;
+    border-radius:999px;
+    font-size:13px;
+  }
+  .app-switcher select{
+    background:transparent;border:none;color:var(--text);
+    font-family:'Space Grotesk',sans-serif;font-weight:600;font-size:14px;
+    outline:none;cursor:pointer;
+  }
+  .app-switcher select option{background:var(--surface-2);color:var(--text);}
+  .dot-tiny{width:8px;height:8px;border-radius:50%;background:var(--signal);flex-shrink:0;margin-left:6px;}
+
+  .topbar-right{display:flex;align-items:center;gap:14px;font-size:13px;color:var(--muted);}
+  .signout{
+    background:none;border:1px solid var(--line);color:var(--muted);
+    padding:6px 12px;border-radius:8px;font-size:12px;cursor:pointer;
+  }
+  .signout:hover{color:var(--text);border-color:var(--danger);}
+
+  .btn-add-app{
+    background:none;border:1px dashed var(--line);color:var(--muted);
+    width:30px;height:30px;border-radius:8px;font-size:16px;cursor:pointer;
+    display:flex;align-items:center;justify-content:center;line-height:1;
+  }
+  .btn-add-app:hover{border-color:var(--signal);color:var(--signal);}
+
+  /* ---------- Modal: agregar / gestionar apps ---------- */
+  .modal-overlay{
+    display:none;position:fixed;inset:0;z-index:50;
+    background:rgba(6,8,11,0.75);backdrop-filter:blur(3px);
+    align-items:flex-start;justify-content:center;
+    padding:40px 16px;overflow-y:auto;
+  }
+  .modal-overlay.open{display:flex;}
+  .modal-box{
+    background:var(--surface);border:1px solid var(--line);border-radius:16px;
+    width:100%;max-width:460px;padding:24px;
+  }
+  .modal-box h3{font-family:'Space Grotesk',sans-serif;margin:0 0 6px;font-size:17px;}
+  .modal-box p.hint{color:var(--muted);font-size:12.5px;margin:0 0 18px;line-height:1.5;}
+  .field{margin-bottom:12px;}
+  .field label{display:block;font-size:11.5px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.04em;}
+  .field input, .field textarea{
+    width:100%;background:var(--surface-2);border:1px solid var(--line);color:var(--text);
+    padding:10px 12px;border-radius:8px;font-size:13px;font-family:'JetBrains Mono',monospace;
+    outline:none;
+  }
+  .field input:focus, .field textarea:focus{border-color:var(--signal);}
+  .field textarea{min-height:110px;resize:vertical;line-height:1.5;}
+  .field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .modal-actions{display:flex;gap:10px;margin-top:18px;}
+  .btn-primary{
+    flex:1;background:var(--signal);color:#06231C;border:none;
+    padding:11px;border-radius:9px;font-weight:600;font-size:13.5px;cursor:pointer;
+  }
+  .btn-secondary{
+    background:none;border:1px solid var(--line);color:var(--muted);
+    padding:11px 16px;border-radius:9px;font-size:13.5px;cursor:pointer;
+  }
+  .modal-error{color:var(--danger);font-size:12.5px;margin-top:8px;display:none;}
+  .apps-list{margin-top:20px;border-top:1px solid var(--line);padding-top:16px;}
+  .apps-list-item{
+    display:flex;align-items:center;justify-content:space-between;
+    padding:9px 0;font-size:13px;
+  }
+  .apps-list-item .name{display:flex;align-items:center;gap:8px;}
+  .btn-remove{background:none;border:none;color:var(--muted);cursor:pointer;font-size:12px;}
+  .btn-remove:hover{color:var(--danger);}
+  .toggle-json{background:none;border:none;color:var(--signal);font-size:12px;cursor:pointer;padding:0;margin-bottom:10px;text-decoration:underline;}
+
+  main{padding:28px 24px 60px;max-width:1100px;margin:0 auto;}
+  h2.section-title{
+    font-family:'Space Grotesk',sans-serif;font-size:15px;font-weight:600;
+    text-transform:uppercase;letter-spacing:0.06em;color:var(--muted);
+    margin:36px 0 14px;
+  }
+  h2.section-title:first-child{margin-top:0;}
+
+  .stats-grid{
+    display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;
+  }
+  .stat-card{
+    background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    padding:18px;
+  }
+  .stat-card .num{font-family:'Space Grotesk',sans-serif;font-size:30px;font-weight:700;}
+  .stat-card .label{color:var(--muted);font-size:12px;margin-top:4px;}
+  .stat-card.signal .num{color:var(--signal);}
+  .stat-card.warn .num{color:var(--warn);}
+
+  .panel{
+    background:var(--surface);border:1px solid var(--line);border-radius:14px;
+    overflow:hidden;
+  }
+  table{width:100%;border-collapse:collapse;font-size:13.5px;}
+  thead th{
+    text-align:left;padding:12px 16px;color:var(--muted);
+    font-weight:500;font-size:11.5px;text-transform:uppercase;letter-spacing:.05em;
+    border-bottom:1px solid var(--line);
+  }
+  tbody td{padding:13px 16px;border-bottom:1px solid var(--line);vertical-align:middle;}
+  tbody tr:last-child td{border-bottom:none;}
+  tbody tr:hover{background:var(--surface-2);}
+
+  .status-cell{display:flex;align-items:center;gap:8px;}
+  .pulse{
+    width:9px;height:9px;border-radius:50%;position:relative;flex-shrink:0;
+  }
+  .pulse.on{background:var(--signal);}
+  .pulse.on::after{
+    content:'';position:absolute;inset:-5px;border-radius:50%;
+    border:1px solid var(--signal);
+    animation:ping 1.8s cubic-bezier(0,0,0.2,1) infinite;
+  }
+  .pulse.off{background:var(--warn);}
+  @keyframes ping{
+    0%{transform:scale(0.6);opacity:0.8;}
+    100%{transform:scale(1.8);opacity:0;}
+  }
+  @media (prefers-reduced-motion: reduce){ .pulse.on::after{animation:none;} }
+
+  .email-cell{font-family:'JetBrains Mono',monospace;font-size:12.5px;}
+  .date-cell{color:var(--muted);font-size:12.5px;}
+  .badges{display:flex;flex-wrap:wrap;gap:5px;}
+  .badge{
+    font-size:10.5px;padding:3px 8px;border-radius:999px;
+    background:var(--surface-2);color:var(--muted);border:1px solid var(--line);
+    font-family:'JetBrains Mono',monospace;
+  }
+  .badge.on{background:var(--signal-dim);color:var(--signal);border-color:transparent;}
+
+  .empty-state{padding:40px 20px;text-align:center;color:var(--muted);font-size:13.5px;}
+  .loading{padding:40px 20px;text-align:center;color:var(--muted);font-size:13px;}
+
+  .accesos-note{
+    font-size:12.5px;color:var(--muted);padding:14px 16px;border-bottom:1px solid var(--line);
+    background:var(--surface-2);
+  }
+  .kv-row{padding:12px 16px;border-bottom:1px solid var(--line);}
+  .kv-row:last-child{border-bottom:none;}
+  .kv-row .doc-id{font-family:'JetBrains Mono',monospace;font-size:11.5px;color:var(--signal);margin-bottom:6px;}
+  .kv-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:6px 16px;}
+  .kv-pair{font-size:12px;color:var(--muted);}
+  .kv-pair b{color:var(--text);font-weight:500;font-family:'JetBrains Mono',monospace;}
+
+  ::-webkit-scrollbar{height:8px;width:8px;}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:4px;}
+
+  /* ---------- Tabla → tarjetas en pantallas chicas ---------- */
+  @media (max-width: 700px){
+    main{padding:20px 14px 50px;}
+    header.topbar{padding:14px 16px;flex-wrap:wrap;gap:10px;}
+    .topbar-right{font-size:11.5px;gap:8px;}
+    #admin-email{max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+
+    table, thead, tbody, th, td, tr{display:block;}
+    thead{display:none;}
+    tbody tr{
+      padding:14px 16px;
+      border-bottom:1px solid var(--line);
+    }
+    tbody tr:hover{background:transparent;}
+    tbody td{
+      display:flex;
+      justify-content:space-between;
+      align-items:center;
+      gap:12px;
+      padding:7px 0;
+      border:none;
+    }
+    tbody td::before{
+      content: attr(data-label);
+      color:var(--muted);
+      font-size:10.5px;
+      text-transform:uppercase;
+      letter-spacing:.05em;
+      flex-shrink:0;
+    }
+    tbody td.email-cell{
+      word-break:break-all;
+      text-align:right;
+    }
+    tbody td .badges{justify-content:flex-end;}
+    tbody td[data-label="Funciones"]{align-items:flex-start;}
+  }
+</style>
+</head>
+<body>
+
+<div id="auth-screen">
+  <div class="logo-mark">S</div>
+  <h1>Panel de actividad</h1>
+  <p>Acceso restringido. Iniciá sesión con la cuenta de administrador para ver la actividad de los usuarios.</p>
+  <button class="btn-google" id="btn-signin">Iniciar sesión con Google</button>
+  <p id="auth-error"></p>
+</div>
+
+<div id="app">
+  <header class="topbar">
+    <div class="topbar-left">
+      <div class="app-switcher">
+        <span class="dot-tiny"></span>
+        <select id="app-select"></select>
+      </div>
+      <button class="btn-add-app" id="btn-open-apps" title="Agregar / gestionar apps">+</button>
+    </div>
+    <div class="topbar-right">
+      <span id="admin-email"></span>
+      <button class="signout" id="btn-signout">Salir</button>
+    </div>
+  </header>
+
+  <div class="modal-overlay" id="apps-modal">
+    <div class="modal-box">
+      <h3>Agregar app</h3>
+      <p class="hint">Pegá la configuración de Firebase de la nueva app (la sacás de Firebase Console → ⚙️ Configuración del proyecto → Tus apps). Se guarda en este navegador — no hace falta resubir el archivo.</p>
+
+      <div class="field">
+        <label>Nombre para mostrar</label>
+        <input type="text" id="f-name" placeholder="Ej: Carnear 2">
+      </div>
+
+      <button type="button" class="toggle-json" id="toggle-json-btn">Pegar como JSON en vez de campo por campo</button>
+
+      <div id="fields-individual">
+        <div class="field-row">
+          <div class="field"><label>apiKey</label><input type="text" id="f-apiKey"></div>
+          <div class="field"><label>authDomain</label><input type="text" id="f-authDomain"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>projectId</label><input type="text" id="f-projectId"></div>
+          <div class="field"><label>storageBucket</label><input type="text" id="f-storageBucket"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>messagingSenderId</label><input type="text" id="f-messagingSenderId"></div>
+          <div class="field"><label>appId</label><input type="text" id="f-appId"></div>
+        </div>
+      </div>
+
+      <div id="fields-json" style="display:none;">
+        <div class="field">
+          <label>firebaseConfig (pegar el bloque completo)</label>
+          <textarea id="f-json" placeholder="const firebaseConfig = { apiKey: ... }"></textarea>
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field"><label>Colección "clientes"</label><input type="text" id="f-col-clientes" value="clientes"></div>
+        <div class="field"><label>Colección "accesos"</label><input type="text" id="f-col-accesos" value="accesos"></div>
+      </div>
+
+      <p class="modal-error" id="modal-error"></p>
+
+      <div class="modal-actions">
+        <button type="button" class="btn-secondary" id="btn-cancel-app">Cancelar</button>
+        <button type="button" class="btn-primary" id="btn-save-app">Guardar app</button>
+      </div>
+
+      <div class="apps-list" id="apps-list"></div>
+    </div>
+  </div>
+
+  <main>
+    <h2 class="section-title">Resumen</h2>
+
+    <div class="stats-grid" id="stats-grid">
+      <div class="stat-card"><div class="num">—</div><div class="label">Total usuarios</div></div>
+      <div class="stat-card signal"><div class="num">—</div><div class="label">Activos</div></div>
+      <div class="stat-card"><div class="num">—</div><div class="label">Nuevos · 7 días</div></div>
+      <div class="stat-card warn"><div class="num">—</div><div class="label">Inactivos</div></div>
+    </div>
+
+    <h2 class="section-title">Usuarios</h2>
+    <div class="panel">
+      <table>
+        <thead>
+          <tr>
+            <th>Estado</th>
+            <th>Email</th>
+            <th>Alta</th>
+            <th>Funciones activas</th>
+          </tr>
+        </thead>
+        <tbody id="clientes-tbody">
+          <tr><td colspan="4" class="loading">Cargando usuarios…</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <h2 class="section-title">Accesos recientes</h2>
+    <div class="panel" id="accesos-panel">
+      <div class="loading">Cargando accesos…</div>
+    </div>
+  </main>
+</div>
+
+<script type="module">
+  import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
+  import {
+    getFirestore, collection, getDocs, query, limit
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  // ============================================================
+  // CONFIGURACIÓN — la lista de apps vive en localStorage de este
+  // navegador. Se agregan/borran desde el modal, sin tocar código.
+  // ============================================================
+  const ADMIN_EMAIL = "rgaraventa@gmail.com";
+  const STORAGE_KEY = "panel_apps_v1";
+
+  const DEFAULT_APPS = [
+    {
+      id: "carnear",
+      name: "CarneAR",
+      firebaseConfig: {
+        apiKey: "AIzaSyAffBjEK-m900oKRvI4k6w8eTcgbGxyJok",
+        authDomain: "carnear-1d2c4.firebaseapp.com",
+        projectId: "carnear-1d2c4",
+        storageBucket: "carnear-1d2c4.firebasestorage.app",
+        messagingSenderId: "982486541527",
+        appId: "1:982486541527:web:9a7db609c7a983fc3dbc92"
+      },
+      collections: { clientes: "clientes", accesos: "accesos" }
+    },
+    {
+      id: "rodix",
+      name: "Rodix",
+      firebaseConfig: {
+        apiKey: "AIzaSyDH4GvbdtPqJwUlnRDqtOUoofkL4PTXiew",
+        authDomain: "vehigest-ar.firebaseapp.com",
+        projectId: "vehigest-ar",
+        storageBucket: "vehigest-ar.firebasestorage.app",
+        messagingSenderId: "150404378851",
+        appId: "1:150404378851:web:940ba835e20c4edeb215d6"
+      },
+      collections: { clientes: "usuarios", accesos: "accesos" }
+    },
+    {
+      id: "securepro",
+      name: "SecuroPro",
+      firebaseConfig: {
+        apiKey: "AIzaSyDgpyUd8AExCLy29fwkjc5-mEALA57Wtig",
+        authDomain: "pro-a247e.firebaseapp.com",
+        projectId: "pro-a247e",
+        storageBucket: "pro-a247e.firebasestorage.app",
+        messagingSenderId: "3470750973",
+        appId: "1:3470750973:web:f3d029ed18093ecaf1ba94"
+      },
+      collections: { clientes: "usuarios", accesos: "accesos" }
+    },
+    {
+      id: "lavar",
+      name: "LavAR",
+      firebaseConfig: {
+        apiKey: "AIzaSyDVcK9reiQuC6YUpX16DMjyYhtYiH40hbc",
+        authDomain: "lavar-b8b84.firebaseapp.com",
+        projectId: "lavar-b8b84",
+        storageBucket: "lavar-b8b84.firebasestorage.app",
+        messagingSenderId: "1064006581602",
+        appId: "1:1064006581602:web:fb5f0eea1dcff93d7a003b"
+      },
+      collections: { clientes: "config", accesos: "accesos" }
+    },
+    {
+      id: "pizzar",
+      name: "PizzAR",
+      firebaseConfig: {
+        apiKey: "AIzaSyBSKWqpPwUsF-jq_GES1fCwiZZACz0Jz_I",
+        authDomain: "pizzar-b48af.firebaseapp.com",
+        projectId: "pizzar-b48af",
+        storageBucket: "pizzar-b48af.firebasestorage.app",
+        messagingSenderId: "688726516053",
+        appId: "1:688726516053:web:2e11e63aec82225e82cfdc"
+      },
+      collections: { clientes: "configuracion", accesos: "accesos" }
+    },
+    {
+      id: "panar",
+      name: "PanAR",
+      firebaseConfig: {
+        apiKey: "AIzaSyCM_V4a6QtXtCKzrCGF2eLVTLxT5aOGlCU",
+        authDomain: "panar-b08f1.firebaseapp.com",
+        projectId: "panar-b08f1",
+        storageBucket: "panar-b08f1.firebasestorage.app",
+        messagingSenderId: "984331564649",
+        appId: "1:984331564649:web:a58cea3d04fdecccaa14f8"
+      },
+      collections: { clientes: "configuracion", accesos: "accesos" }
+    },
+    {
+      id: "barbear",
+      name: "BarbeAR",
+      firebaseConfig: {
+        apiKey: "AIzaSyCqdBdkDoj46bEqBe7Ihhg7xwQMmybxaJI",
+        authDomain: "barbear-c482c.firebaseapp.com",
+        projectId: "barbear-c482c",
+        storageBucket: "barbear-c482c.firebasestorage.app",
+        messagingSenderId: "886220140963",
+        appId: "1:886220140963:web:27658c2ee7a45618afea16"
+      },
+      collections: { clientes: "clientes", accesos: "accesos" }
+    },
+    {
+      id: "comprazona",
+      name: "CompraZona",
+      firebaseConfig: {
+        apiKey: "AIzaSyAwsmI5H5qUZT0tj8vZYhPscTmZqHI2SQ4",
+        authDomain: "ravenmarket-c2739.firebaseapp.com",
+        projectId: "ravenmarket-c2739",
+        storageBucket: "ravenmarket-c2739.firebasestorage.app",
+        messagingSenderId: "514168931031",
+        appId: "1:514168931031:web:3887e0ff2c1792ba21a692"
+      },
+      collections: { clientes: "usuarios", accesos: "accesos" }
+    }
+  ];
+
+  function loadApps() {
+    let stored = [];
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) stored = parsed;
+      }
+    } catch (e) { stored = []; }
+
+    // Si agregué apps nuevas en el código (DEFAULT_APPS), las sumamos acá
+    // aunque el navegador ya tuviera guardada una lista previa —
+    // así no hace falta tocar nada desde el panel cuando yo actualizo el archivo.
+    const knownProjectIds = new Set(stored.map(a => a.firebaseConfig.projectId));
+    let changed = false;
+    for (const def of DEFAULT_APPS) {
+      if (!knownProjectIds.has(def.firebaseConfig.projectId)) {
+        stored.push(def);
+        changed = true;
+      }
+    }
+    if (!stored.length) { stored = [...DEFAULT_APPS]; changed = true; }
+    if (changed) saveApps(stored);
+    return stored;
+  }
+
+  function saveApps(list) {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(list));
+  }
+
+  let APPS = loadApps();
+
+  // ============================================================
+  // Estado / helpers
+  // ============================================================
+  // Un Firebase App + Auth por proyecto distinto (Auth es por-proyecto,
+  // así que cada Firebase project necesita su propio login).
+  const projectAuth = {}; // projectId -> { app, auth }
+  let db = null;
+  let currentAppEntry = null;
+
+  function getProjectAuth(entry) {
+    const pid = entry.firebaseConfig.projectId;
+    if (!projectAuth[pid]) {
+      const app = initializeApp(entry.firebaseConfig, "auth-" + pid);
+      projectAuth[pid] = { app, auth: getAuth(app) };
+    }
+    return projectAuth[pid];
+  }
+
+  async function ensureSignedIn(entry) {
+    const rec = getProjectAuth(entry);
+    if (rec.auth.currentUser && rec.auth.currentUser.email === ADMIN_EMAIL) {
+      return rec;
+    }
+    const provider = new GoogleAuthProvider();
+    const result = await signInWithPopup(rec.auth, provider);
+    if (result.user.email !== ADMIN_EMAIL) {
+      await signOut(rec.auth);
+      throw new Error(`La cuenta ${result.user.email} no está autorizada para "${entry.name}".`);
+    }
+    return rec;
+  }
+
+  function fmtDate(value) {
+    try {
+      let d;
+      if (value && typeof value.toDate === "function") d = value.toDate();
+      else if (value instanceof Date) d = value;
+      else if (typeof value === "number") d = new Date(value);
+      else if (typeof value === "string") d = new Date(value);
+      else return "—";
+      if (isNaN(d.getTime())) return "—";
+      return d.toLocaleDateString("es-AR", { day: "2-digit", month: "short", year: "numeric" });
+    } catch (e) { return "—"; }
+  }
+
+  function daysAgo(value) {
+    try {
+      let d;
+      if (value && typeof value.toDate === "function") d = value.toDate();
+      else if (value instanceof Date) d = value;
+      else return null;
+      const diffMs = Date.now() - d.getTime();
+      return diffMs / (1000 * 60 * 60 * 24);
+    } catch (e) { return null; }
+  }
+
+  function formatFieldValue(val) {
+    if (val === null || val === undefined) return "—";
+    if (typeof val === "boolean") return val ? "true" : "false";
+    if (val && typeof val.toDate === "function") return fmtDate(val);
+    if (typeof val === "object") {
+      try { return JSON.stringify(val); } catch (e) { return String(val); }
+    }
+    return String(val);
+  }
+
+  // ============================================================
+  // Carga de datos por app seleccionada
+  // ============================================================
+  async function loadAppData(entry) {
+    document.getElementById("clientes-tbody").innerHTML =
+      '<tr><td colspan="4" class="loading">Conectando…</td></tr>';
+    document.getElementById("accesos-panel").innerHTML =
+      '<div class="loading">Conectando…</div>';
+
+    let rec;
+    try {
+      rec = await ensureSignedIn(entry);
+    } catch (err) {
+      const msg = `No se pudo conectar con "${entry.name}": ${err.message || err}`;
+      document.getElementById("clientes-tbody").innerHTML =
+        `<tr><td colspan="4" class="empty-state">${msg}</td></tr>`;
+      document.getElementById("accesos-panel").innerHTML =
+        `<div class="empty-state">${msg}</div>`;
+      return;
+    }
+
+    db = getFirestore(rec.app);
+    document.getElementById("clientes-tbody").innerHTML =
+      '<tr><td colspan="4" class="loading">Cargando usuarios…</td></tr>';
+    document.getElementById("accesos-panel").innerHTML =
+      '<div class="loading">Cargando accesos…</div>';
+
+    await Promise.all([loadClientes(entry), loadAccesos(entry)]);
+  }
+
+  async function loadClientes(entry) {
+    const tbody = document.getElementById("clientes-tbody");
+    try {
+      const snap = await getDocs(collection(db, entry.collections.clientes));
+      if (snap.empty) {
+        tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No hay usuarios en esta colección todavía.</td></tr>';
+        updateStats([]);
+        return;
+      }
+      const rows = [];
+      snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
+
+      // orden: más nuevos primero si hay creadoEn
+      rows.sort((a, b) => {
+        const da = a.creadoEn && a.creadoEn.toDate ? a.creadoEn.toDate().getTime() : 0;
+        const db_ = b.creadoEn && b.creadoEn.toDate ? b.creadoEn.toDate().getTime() : 0;
+        return db_ - da;
+      });
+
+      tbody.innerHTML = rows.map(r => {
+        const isActive = r.activo === true;
+        const email = r.email || r.id;
+        const features = r.features && typeof r.features === "object" ? r.features : {};
+        const featureBadges = Object.keys(features).length
+          ? Object.entries(features).map(([k, v]) =>
+              `<span class="badge ${v ? "on" : ""}">${k}</span>`
+            ).join("")
+          : '<span class="badge">sin datos</span>';
+
+        return `
+          <tr>
+            <td data-label="Estado">
+              <div class="status-cell">
+                <span class="pulse ${isActive ? "on" : "off"}"></span>
+                <span>${isActive ? "Activo" : "Inactivo"}</span>
+              </div>
+            </td>
+            <td class="email-cell" data-label="Email">${email}</td>
+            <td class="date-cell" data-label="Alta">${fmtDate(r.creadoEn)}</td>
+            <td data-label="Funciones"><div class="badges">${featureBadges}</div></td>
+          </tr>
+        `;
+      }).join("");
+
+      updateStats(rows);
+    } catch (err) {
+      console.error(err);
+      tbody.innerHTML = `<tr><td colspan="4" class="empty-state">No se pudo leer la colección "${entry.collections.clientes}". Revisá las reglas de seguridad de Firestore.<br><span class="mono" style="font-size:11px;">${err.message || err}</span></td></tr>`;
+      updateStats([]);
+    }
+  }
+
+  function updateStats(rows) {
+    const total = rows.length;
+    const activos = rows.filter(r => r.activo === true).length;
+    const inactivos = total - activos;
+    const nuevos7 = rows.filter(r => {
+      const da = daysAgo(r.creadoEn);
+      return da !== null && da <= 7;
+    }).length;
+
+    const cards = document.querySelectorAll(".stat-card .num");
+    cards[0].textContent = total;
+    cards[1].textContent = activos;
+    cards[2].textContent = nuevos7;
+    cards[3].textContent = inactivos;
+  }
+
+  async function loadAccesos(entry) {
+    const panel = document.getElementById("accesos-panel");
+    try {
+      const q = query(collection(db, entry.collections.accesos), limit(50));
+      const snap = await getDocs(q);
+      if (snap.empty) {
+        panel.innerHTML = '<div class="empty-state">Todavía no hay registros en "accesos", o la colección tiene otro nombre/estructura.</div>';
+        return;
+      }
+      const docs = [];
+      snap.forEach(doc => docs.push({ id: doc.id, data: doc.data() }));
+
+      // intento de orden por campo tipo fecha, si existe
+      const dateKeys = ["timestamp", "fecha", "fecha_acceso", "creadoEn", "createdAt", "date"];
+      docs.sort((a, b) => {
+        const ka = dateKeys.find(k => a.data[k] && a.data[k].toDate);
+        const kb = dateKeys.find(k => b.data[k] && b.data[k].toDate);
+        const ta = ka ? a.data[ka].toDate().getTime() : 0;
+        const tb = kb ? b.data[kb].toDate().getTime() : 0;
+        return tb - ta;
+      });
+
+      const note = `<div class="accesos-note">Estructura no configurada todavía — mostrando los campos tal cual están guardados (máx. 50 registros).</div>`;
+
+      const rowsHtml = docs.map(d => {
+        const pairs = Object.entries(d.data).map(([k, v]) =>
+          `<div class="kv-pair"><b>${k}:</b> ${formatFieldValue(v)}</div>`
+        ).join("");
+        return `<div class="kv-row"><div class="doc-id">${d.id}</div><div class="kv-grid">${pairs}</div></div>`;
+      }).join("");
+
+      panel.innerHTML = note + rowsHtml;
+    } catch (err) {
+      console.error(err);
+      panel.innerHTML = `<div class="empty-state">No se pudo leer la colección "${entry.collections.accesos}". Revisá las reglas de seguridad de Firestore.<br><span class="mono" style="font-size:11px;">${err.message || err}</span></div>`;
+    }
+  }
+
+  // ============================================================
+  // App switcher
+  // ============================================================
+  function populateAppSelect() {
+    const sel = document.getElementById("app-select");
+    const prevValue = sel.value;
+    sel.innerHTML = APPS.map(a => `<option value="${a.id}">${a.name}</option>`).join("");
+    if (APPS.find(a => a.id === prevValue)) sel.value = prevValue;
+  }
+
+  document.getElementById("app-select").addEventListener("change", (e) => {
+    currentAppEntry = APPS.find(a => a.id === e.target.value);
+    loadAppData(currentAppEntry);
+  });
+
+  // ============================================================
+  // Modal: agregar / gestionar apps
+  // ============================================================
+  const modal = document.getElementById("apps-modal");
+  const modalError = document.getElementById("modal-error");
+
+  function showModalError(msg) {
+    modalError.textContent = msg;
+    modalError.style.display = "block";
+  }
+
+  function renderAppsList() {
+    const list = document.getElementById("apps-list");
+    list.innerHTML = "<p class='hint' style='margin-bottom:8px;'>Apps guardadas en este navegador:</p>" +
+      APPS.map(a => `
+        <div class="apps-list-item">
+          <span class="name"><span class="dot-tiny" style="margin-left:0;"></span>${a.name} <span style="color:var(--muted);font-size:11px;">(${a.firebaseConfig.projectId})</span></span>
+          <button class="btn-remove" data-remove="${a.id}">Quitar</button>
+        </div>
+      `).join("");
+
+    list.querySelectorAll("[data-remove]").forEach(btn => {
+      btn.addEventListener("click", () => {
+        const id = btn.getAttribute("data-remove");
+        if (APPS.length <= 1) {
+          showModalError("Tiene que quedar al menos una app.");
+          return;
+        }
+        if (!confirm(`¿Quitar "${APPS.find(a => a.id === id).name}" del panel?`)) return;
+        APPS = APPS.filter(a => a.id !== id);
+        saveApps(APPS);
+        populateAppSelect();
+        renderAppsList();
+        if (currentAppEntry && currentAppEntry.id === id) {
+          currentAppEntry = APPS[0];
+          document.getElementById("app-select").value = APPS[0].id;
+          loadAppData(APPS[0]);
+        }
+      });
+    });
+  }
+
+  function openModal() {
+    modalError.style.display = "none";
+    document.getElementById("f-name").value = "";
+    document.getElementById("f-apiKey").value = "";
+    document.getElementById("f-authDomain").value = "";
+    document.getElementById("f-projectId").value = "";
+    document.getElementById("f-storageBucket").value = "";
+    document.getElementById("f-messagingSenderId").value = "";
+    document.getElementById("f-appId").value = "";
+    document.getElementById("f-json").value = "";
+    document.getElementById("f-col-clientes").value = "clientes";
+    document.getElementById("f-col-accesos").value = "accesos";
+    renderAppsList();
+    modal.classList.add("open");
+  }
+
+  document.getElementById("btn-open-apps").addEventListener("click", openModal);
+  document.getElementById("btn-cancel-app").addEventListener("click", () => modal.classList.remove("open"));
+  modal.addEventListener("click", (e) => { if (e.target === modal) modal.classList.remove("open"); });
+
+  document.getElementById("toggle-json-btn").addEventListener("click", () => {
+    const indiv = document.getElementById("fields-individual");
+    const json = document.getElementById("fields-json");
+    const btn = document.getElementById("toggle-json-btn");
+    const showingJson = json.style.display !== "none";
+    indiv.style.display = showingJson ? "block" : "none";
+    json.style.display = showingJson ? "none" : "block";
+    btn.textContent = showingJson ? "Pegar como JSON en vez de campo por campo" : "Volver a campo por campo";
+  });
+
+  function parsePastedConfig(text) {
+    // Acepta tanto un objeto JS pegado tal cual (con "const firebaseConfig = {...}")
+    // como JSON puro. Extraemos el bloque entre llaves y lo evaluamos de forma segura.
+    const match = text.match(/{[\s\S]*}/);
+    if (!match) throw new Error("No encontré un bloque { ... } válido.");
+    let block = match[0];
+    // Convertimos claves sin comillas (apiKey: ...) a JSON válido.
+    block = block.replace(/([{,]\s*)([a-zA-Z0-9_]+)(\s*:)/g, '$1"$2"$3');
+    block = block.replace(/'/g, '"');
+    block = block.replace(/,(\s*})/g, '$1'); // trailing commas
+    return JSON.parse(block);
+  }
+
+  document.getElementById("btn-save-app").addEventListener("click", () => {
+    modalError.style.display = "none";
+    const name = document.getElementById("f-name").value.trim();
+    if (!name) { showModalError("Ponele un nombre a la app."); return; }
+
+    const usingJson = document.getElementById("fields-json").style.display !== "none";
+    let firebaseConfig;
+
+    try {
+      if (usingJson) {
+        firebaseConfig = parsePastedConfig(document.getElementById("f-json").value);
+      } else {
+        firebaseConfig = {
+          apiKey: document.getElementById("f-apiKey").value.trim(),
+          authDomain: document.getElementById("f-authDomain").value.trim(),
+          projectId: document.getElementById("f-projectId").value.trim(),
+          storageBucket: document.getElementById("f-storageBucket").value.trim(),
+          messagingSenderId: document.getElementById("f-messagingSenderId").value.trim(),
+          appId: document.getElementById("f-appId").value.trim()
+        };
+      }
+    } catch (err) {
+      showModalError("No pude leer esa configuración: " + (err.message || err));
+      return;
+    }
+
+    if (!firebaseConfig.projectId || !firebaseConfig.apiKey) {
+      showModalError("Faltan campos obligatorios (apiKey / projectId).");
+      return;
+    }
+
+    const id = firebaseConfig.projectId + "-" + Date.now().toString(36);
+    const entry = {
+      id,
+      name,
+      firebaseConfig,
+      collections: {
+        clientes: document.getElementById("f-col-clientes").value.trim() || "clientes",
+        accesos: document.getElementById("f-col-accesos").value.trim() || "accesos"
+      }
+    };
+
+    APPS.push(entry);
+    saveApps(APPS);
+    populateAppSelect();
+    renderAppsList();
+    document.getElementById("f-name").value = "";
+    document.getElementById("f-apiKey").value = "";
+    document.getElementById("f-authDomain").value = "";
+    document.getElementById("f-projectId").value = "";
+    document.getElementById("f-storageBucket").value = "";
+    document.getElementById("f-messagingSenderId").value = "";
+    document.getElementById("f-appId").value = "";
+    document.getElementById("f-json").value = "";
+  });
+
+  // ============================================================
+  // Auth — pantalla inicial (usa la primera app de la lista)
+  // ============================================================
+  let bootAuth;
+
+  document.getElementById("btn-signin").addEventListener("click", async () => {
+    const errEl = document.getElementById("auth-error");
+    errEl.style.display = "none";
+    try {
+      bootAuth = getProjectAuth(APPS[0]);
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(bootAuth.auth, provider);
+    } catch (err) {
+      errEl.textContent = "No se pudo iniciar sesión: " + (err.message || err);
+      errEl.style.display = "block";
+    }
+  });
+
+  document.getElementById("btn-signout").addEventListener("click", () => {
+    if (bootAuth) signOut(bootAuth.auth);
+  });
+
+  bootAuth = getProjectAuth(APPS[0]);
+  onAuthStateChanged(bootAuth.auth, (user) => {
+    const errEl = document.getElementById("auth-error");
+    if (user && user.email === ADMIN_EMAIL) {
+      document.getElementById("auth-screen").style.display = "none";
+      document.getElementById("app").style.display = "block";
+      document.getElementById("admin-email").textContent = user.email;
+      populateAppSelect();
+      currentAppEntry = APPS[0];
+      loadAppData(currentAppEntry);
+    } else if (user && user.email !== ADMIN_EMAIL) {
+      errEl.textContent = "Esta cuenta (" + user.email + ") no tiene acceso a este panel.";
+      errEl.style.display = "block";
+      signOut(bootAuth.auth);
+      document.getElementById("app").style.display = "none";
+      document.getElementById("auth-screen").style.display = "flex";
+    } else {
+      document.getElementById("app").style.display = "none";
+      document.getElementById("auth-screen").style.display = "flex";
+    }
+  });
+</script>
+
+</body>
+</html>
