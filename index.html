@@ -378,10 +378,11 @@
             <th>Email</th>
             <th>Alta</th>
             <th>Funciones activas</th>
+            <th>Ventas</th>
           </tr>
         </thead>
         <tbody id="clientes-tbody">
-          <tr><td colspan="4" class="loading">Cargando usuarios…</td></tr>
+          <tr><td colspan="5" class="loading">Cargando usuarios…</td></tr>
         </tbody>
       </table>
     </div>
@@ -399,7 +400,7 @@
     getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
   import {
-    getFirestore, collection, getDocs, query, limit
+    getFirestore, collection, getDocs, query, limit, orderBy, getCountFromServer
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
   // ============================================================
@@ -421,7 +422,8 @@
         messagingSenderId: "982486541527",
         appId: "1:982486541527:web:9a7db609c7a983fc3dbc92"
       },
-      collections: { clientes: "clientes", accesos: "accesos" }
+      collections: { clientes: "clientes", accesos: "accesos" },
+      hasVentas: true
     },
     {
       id: "rodix",
@@ -499,7 +501,8 @@
         messagingSenderId: "886220140963",
         appId: "1:886220140963:web:27658c2ee7a45618afea16"
       },
-      collections: { clientes: "clientes", accesos: "accesos" }
+      collections: { clientes: "clientes", accesos: "accesos" },
+      hasVentas: true
     },
     {
       id: "comprazona",
@@ -619,7 +622,7 @@
   // ============================================================
   async function loadAppData(entry) {
     document.getElementById("clientes-tbody").innerHTML =
-      '<tr><td colspan="4" class="loading">Conectando…</td></tr>';
+      '<tr><td colspan="5" class="loading">Conectando…</td></tr>';
     document.getElementById("accesos-panel").innerHTML =
       '<div class="loading">Conectando…</div>';
 
@@ -629,7 +632,7 @@
     } catch (err) {
       const msg = `No se pudo conectar con "${entry.name}": ${err.message || err}`;
       document.getElementById("clientes-tbody").innerHTML =
-        `<tr><td colspan="4" class="empty-state">${msg}</td></tr>`;
+        `<tr><td colspan="5" class="empty-state">${msg}</td></tr>`;
       document.getElementById("accesos-panel").innerHTML =
         `<div class="empty-state">${msg}</div>`;
       return;
@@ -637,7 +640,7 @@
 
     db = getFirestore(rec.app);
     document.getElementById("clientes-tbody").innerHTML =
-      '<tr><td colspan="4" class="loading">Cargando usuarios…</td></tr>';
+      '<tr><td colspan="5" class="loading">Cargando usuarios…</td></tr>';
     document.getElementById("accesos-panel").innerHTML =
       '<div class="loading">Cargando accesos…</div>';
 
@@ -649,7 +652,7 @@
     try {
       const snap = await getDocs(collection(db, entry.collections.clientes));
       if (snap.empty) {
-        tbody.innerHTML = '<tr><td colspan="4" class="empty-state">No hay usuarios en esta colección todavía.</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="5" class="empty-state">No hay usuarios en esta colección todavía.</td></tr>';
         updateStats([]);
         return;
       }
@@ -673,6 +676,13 @@
             ).join("")
           : '<span class="badge">sin datos</span>';
 
+        const ventasCellId = `ventas-${r.id.replace(/[^a-zA-Z0-9]/g,'_')}`;
+        const ventasCell = entry.hasVentas
+          ? (r.uid
+              ? `<span id="${ventasCellId}" class="mono" style="color:var(--muted);">cargando…</span>`
+              : `<span class="mono" style="color:var(--muted);font-size:11px;">sin datos aún</span>`)
+          : `<span style="color:var(--muted);">—</span>`;
+
         return `
           <tr>
             <td data-label="Estado">
@@ -684,15 +694,62 @@
             <td class="email-cell" data-label="Email">${email}</td>
             <td class="date-cell" data-label="Alta">${fmtDate(r.creadoEn)}</td>
             <td data-label="Funciones"><div class="badges">${featureBadges}</div></td>
+            <td class="date-cell" data-label="Ventas">${ventasCell}</td>
           </tr>
         `;
       }).join("");
 
       updateStats(rows);
+
+      // Cargar ventas reales por cliente (progresivo, no bloquea la tabla)
+      if (entry.hasVentas) {
+        rows.forEach(r => {
+          if (!r.uid) return;
+          const cellId = `ventas-${r.id.replace(/[^a-zA-Z0-9]/g,'_')}`;
+          cargarVentasCliente(r.uid, cellId);
+        });
+      }
     } catch (err) {
       console.error(err);
-      tbody.innerHTML = `<tr><td colspan="4" class="empty-state">No se pudo leer la colección "${entry.collections.clientes}". Revisá las reglas de seguridad de Firestore.<br><span class="mono" style="font-size:11px;">${err.message || err}</span></td></tr>`;
+      tbody.innerHTML = `<tr><td colspan="5" class="empty-state">No se pudo leer la colección "${entry.collections.clientes}". Revisá las reglas de seguridad de Firestore.<br><span class="mono" style="font-size:11px;">${err.message || err}</span></td></tr>`;
       updateStats([]);
+    }
+  }
+
+  async function cargarVentasCliente(uid, cellId) {
+    try {
+      const ventasRef = collection(db, 'negocios', uid, 'ventas');
+
+      const countSnap = await getCountFromServer(ventasRef);
+      const total = countSnap.data().count;
+
+      const el = document.getElementById(cellId);
+      if (!el) return;
+
+      if (total === 0) {
+        el.textContent = 'sin ventas';
+        el.style.color = 'var(--warn)';
+        return;
+      }
+
+      // Traer la venta más reciente para saber "última actividad"
+      let ultimaTxt = '';
+      try {
+        const q = query(ventasRef, orderBy('ts', 'desc'), limit(1));
+        const ultSnap = await getDocs(q);
+        if (!ultSnap.empty) {
+          const d = ultSnap.docs[0].data();
+          if (d.ts && d.ts.toDate) {
+            ultimaTxt = ' · ' + fmtDate(d.ts);
+          }
+        }
+      } catch (e) { /* si falla el orden, mostramos solo el total */ }
+
+      el.textContent = `${total} venta${total !== 1 ? 's' : ''}${ultimaTxt}`;
+      el.style.color = 'var(--signal)';
+    } catch (e) {
+      const el = document.getElementById(cellId);
+      if (el) { el.textContent = 'error'; el.style.color = 'var(--danger)'; }
     }
   }
 
