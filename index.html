@@ -529,20 +529,18 @@
       }
     } catch (e) { stored = []; }
 
-    // Si agregué apps nuevas en el código (DEFAULT_APPS), las sumamos acá
-    // aunque el navegador ya tuviera guardada una lista previa —
-    // así no hace falta tocar nada desde el panel cuando yo actualizo el archivo.
-    const knownProjectIds = new Set(stored.map(a => a.firebaseConfig.projectId));
-    let changed = false;
-    for (const def of DEFAULT_APPS) {
-      if (!knownProjectIds.has(def.firebaseConfig.projectId)) {
-        stored.push(def);
-        changed = true;
-      }
-    }
-    if (!stored.length) { stored = [...DEFAULT_APPS]; changed = true; }
-    if (changed) saveApps(stored);
-    return stored;
+    // Las apps que vienen de DEFAULT_APPS (las que yo controlo desde el código)
+    // siempre se refrescan con la última versión, aunque el navegador ya
+    // tuviera una copia guardada — así cualquier campo nuevo que agregue
+    // (como hasVentas) se ve sin que haya que borrar nada manualmente.
+    // Las apps que Ruben agregó a mano desde el modal (no están en
+    // DEFAULT_APPS) se conservan tal cual, sin tocarlas.
+    const defaultProjectIds = new Set(DEFAULT_APPS.map(a => a.firebaseConfig.projectId));
+    const userAdded = stored.filter(a => !defaultProjectIds.has(a.firebaseConfig.projectId));
+    const merged = [...DEFAULT_APPS, ...userAdded];
+
+    saveApps(merged);
+    return merged;
   }
 
   function saveApps(list) {
