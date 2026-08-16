@@ -397,7 +397,8 @@
 <script type="module">
   import { initializeApp, deleteApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
   import {
-    getAuth, GoogleAuthProvider, signInWithPopup, signOut, onAuthStateChanged
+    getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult,
+    signOut, onAuthStateChanged
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
   import {
     getFirestore, collection, getDocs, query, limit, orderBy, getCountFromServer
@@ -567,18 +568,69 @@
     return projectAuth[pid];
   }
 
+  const PENDING_REDIRECT_KEY = "panel_pending_app_id";
+
   async function ensureSignedIn(entry) {
     const rec = getProjectAuth(entry);
     if (rec.auth.currentUser && rec.auth.currentUser.email === ADMIN_EMAIL) {
       return rec;
     }
     const provider = new GoogleAuthProvider();
-    const result = await signInWithPopup(rec.auth, provider);
-    if (result.user.email !== ADMIN_EMAIL) {
-      await signOut(rec.auth);
-      throw new Error(`La cuenta ${result.user.email} no está autorizada para "${entry.name}".`);
+    try {
+      const result = await signInWithPopup(rec.auth, provider);
+      if (result.user.email !== ADMIN_EMAIL) {
+        await signOut(rec.auth);
+        throw new Error(`La cuenta ${result.user.email} no está autorizada para "${entry.name}".`);
+      }
+      return rec;
+    } catch (err) {
+      // En celular los popups suelen fallar (se cierran solos, o el navegador
+      // los bloquea). Si pasa eso, usamos redirección en su lugar — funciona
+      // siempre, aunque implica salir de la página y volver.
+      const popupFallaCodes = [
+        "auth/popup-closed-by-user",
+        "auth/popup-blocked",
+        "auth/cancelled-popup-request"
+      ];
+      if (popupFallaCodes.includes(err.code)) {
+        sessionStorage.setItem(PENDING_REDIRECT_KEY, entry.id);
+        await signInWithRedirect(rec.auth, provider);
+        // La página navega afuera acá — no sigue ejecutando nada más.
+        return new Promise(() => {});
+      }
+      throw err;
     }
-    return rec;
+  }
+
+  async function checkPendingRedirect() {
+    const pendingId = sessionStorage.getItem(PENDING_REDIRECT_KEY);
+    if (!pendingId) return false;
+    sessionStorage.removeItem(PENDING_REDIRECT_KEY);
+
+    const entry = APPS.find(a => a.id === pendingId);
+    if (!entry) return false;
+
+    try {
+      const rec = getProjectAuth(entry);
+      const result = await getRedirectResult(rec.auth);
+      if (!result) return false;
+      if (result.user.email !== ADMIN_EMAIL) {
+        await signOut(rec.auth);
+        return false;
+      }
+      // Sesión de admin ya confirmada por el redirect inicial —
+      // mostramos la app pendiente directamente.
+      document.getElementById("auth-screen").style.display = "none";
+      document.getElementById("app").style.display = "block";
+      document.getElementById("admin-email").textContent = result.user.email;
+      populateAppSelect();
+      document.getElementById("app-select").value = entry.id;
+      currentAppEntry = entry;
+      loadAppData(entry);
+      return true;
+    } catch (e) {
+      return false;
+    }
   }
 
   function fmtDate(value) {
@@ -974,6 +1026,17 @@
       const provider = new GoogleAuthProvider();
       await signInWithPopup(bootAuth.auth, provider);
     } catch (err) {
+      const popupFallaCodes = [
+        "auth/popup-closed-by-user",
+        "auth/popup-blocked",
+        "auth/cancelled-popup-request"
+      ];
+      if (popupFallaCodes.includes(err.code)) {
+        // En celular: usar redirección en vez de popup
+        const provider = new GoogleAuthProvider();
+        await signInWithRedirect(bootAuth.auth, provider);
+        return;
+      }
       errEl.textContent = "No se pudo iniciar sesión: " + (err.message || err);
       errEl.style.display = "block";
     }
@@ -984,6 +1047,11 @@
   });
 
   bootAuth = getProjectAuth(APPS[0]);
+
+  checkPendingRedirect().then(handled => {
+    if (handled) return; // ya se cargó la app pendiente, no seguir con el flujo normal
+  });
+
   onAuthStateChanged(bootAuth.auth, (user) => {
     const errEl = document.getElementById("auth-error");
     if (user && user.email === ADMIN_EMAIL) {
