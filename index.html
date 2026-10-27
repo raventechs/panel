@@ -290,6 +290,10 @@
   <div class="logo-mark">S</div>
   <h1>Panel de actividad</h1>
   <p>Acceso restringido. Iniciá sesión con la cuenta de administrador para ver la actividad de los usuarios.</p>
+  <div id="cid-box" style="display:none;width:100%;max-width:340px;">
+    <p style="margin-bottom:8px;">Login único: pegá el <b>Client ID</b> de Google (se guarda en este navegador).</p>
+    <input type="text" id="cid-input" placeholder="123456-abc.apps.googleusercontent.com" style="width:100%;padding:10px;border-radius:8px;border:1px solid var(--border,#333);background:transparent;color:inherit;font-size:13px;">
+  </div>
   <button class="btn-google" id="btn-signin">Iniciar sesión con Google</button>
   <p id="auth-error"></p>
 </div>
@@ -741,6 +745,119 @@
 
   const PENDING_REDIRECT_KEY = "panel_pending_app_id";
 
+  // ============================================================
+  // LOGIN ÚNICO (Google Identity Services) + Firestore REST.
+  // Un solo inicio de sesión con la cuenta dueña de todos los proyectos;
+  // se lee cada Firestore por REST con ese token (IAM), sin login por
+  // proyecto, sin redirecciones y sin depender de las reglas de la app.
+  // ============================================================
+  const GOOGLE_CLIENT_ID = ""; // opcional: se puede fijar acá o pegar en la pantalla de login
+  const CID_KEY = "panel_gclient_id";
+  const GSCOPES = "openid email https://www.googleapis.com/auth/datastore";
+  let gToken = null, gTokenExp = 0;
+  function getClientId() {
+    if (GOOGLE_CLIENT_ID) return GOOGLE_CLIENT_ID;
+    try { return localStorage.getItem(CID_KEY) || ""; } catch (e) { return ""; }
+  }
+  function loadGsi() {
+    return new Promise((res, rej) => {
+      if (window.google && google.accounts && google.accounts.oauth2) return res();
+      const sc = document.createElement("script");
+      sc.src = "https://accounts.google.com/gsi/client";
+      sc.onload = () => res(); sc.onerror = () => rej(new Error("No se pudo cargar el login de Google (revisá tu conexión)."));
+      document.head.appendChild(sc);
+    });
+  }
+  async function gSignIn() {
+    await loadGsi();
+    return new Promise((resolve, reject) => {
+      const tc = google.accounts.oauth2.initTokenClient({
+        client_id: getClientId(), scope: GSCOPES, prompt: "select_account",
+        callback: async (resp) => {
+          if (resp.error) return reject(new Error(resp.error_description || resp.error));
+          try {
+            const ui = await (await fetch("https://www.googleapis.com/oauth2/v3/userinfo",
+              { headers: { Authorization: "Bearer " + resp.access_token } })).json();
+            if (ui.email !== ADMIN_EMAIL) throw new Error("La cuenta " + ui.email + " no tiene acceso a este panel.");
+            gToken = resp.access_token; gTokenExp = Date.now() + (resp.expires_in - 60) * 1000;
+            resolve(ui.email);
+          } catch (e) { reject(e); }
+        },
+        error_callback: (e) => reject(new Error(e.type === "popup_closed" ? "Se cerró la ventana de Google antes de terminar." : (e.message || e.type)))
+      });
+      tc.requestAccessToken();
+    });
+  }
+  function gSessionOk() { return !!gToken && Date.now() < gTokenExp; }
+  const FS = pid => `https://firestore.googleapis.com/v1/projects/${pid}/databases/(default)/documents`;
+  async function fsFetch(pid, url, opts) {
+    if (!gSessionOk()) throw new Error("La sesión de Google venció. Tocá Salir y volvé a entrar.");
+    const r = await fetch(url, Object.assign({}, opts, { headers: Object.assign({
+      Authorization: "Bearer " + gToken, "x-goog-user-project": pid, "Content-Type": "application/json" }, (opts && opts.headers) || {}) }));
+    const j = await r.json();
+    if (!r.ok) {
+      const m = (j.error && j.error.message) || r.statusText;
+      const st = j.error && j.error.status;
+      if (st === "NOT_FOUND" || /database.*not.*exist|does not exist/i.test(m)) throw new Error("Esta app todavía no tiene base Firestore creada.");
+      if (st === "PERMISSION_DENIED") throw new Error("Tu cuenta no tiene permiso sobre el proyecto " + pid + " o la API de Firestore está deshabilitada (" + m + ")");
+      throw new Error(m);
+    }
+    return j;
+  }
+  function fsVal(v) {
+    if (v === undefined || v === null) return null;
+    if ("stringValue" in v) return v.stringValue;
+    if ("integerValue" in v) return Number(v.integerValue);
+    if ("doubleValue" in v) return v.doubleValue;
+    if ("booleanValue" in v) return v.booleanValue;
+    if ("timestampValue" in v) return new Date(v.timestampValue);
+    if ("nullValue" in v) return null;
+    if ("mapValue" in v) return fsMap(v.mapValue.fields || {});
+    if ("arrayValue" in v) return (v.arrayValue.values || []).map(fsVal);
+    if ("referenceValue" in v) return v.referenceValue.split("/documents/")[1] || v.referenceValue;
+    if ("geoPointValue" in v) return v.geoPointValue.latitude + "," + v.geoPointValue.longitude;
+    return null;
+  }
+  function fsMap(f) { const o = {}; for (const k of Object.keys(f)) o[k] = fsVal(f[k]); return o; }
+  function fsDoc(d) { return { id: d.name.split("/").pop(), data: fsMap(d.fields || {}) }; }
+  async function restList(pid, path, max) {
+    const out = []; let tok = "";
+    do {
+      const j = await fsFetch(pid, `${FS(pid)}/${path}?pageSize=${Math.min(300, max || 300)}${tok ? "&pageToken=" + encodeURIComponent(tok) : ""}`);
+      (j.documents || []).forEach(d => out.push(fsDoc(d)));
+      tok = j.nextPageToken || "";
+    } while (tok && (!max || out.length < max));
+    return max ? out.slice(0, max) : out;
+  }
+  async function restVentas(pid, uid) {
+    const parent = `${FS(pid)}/negocios/${uid}`;
+    const q = { from: [{ collectionId: "ventas" }] };
+    const c = await fsFetch(pid, `${parent}:runAggregationQuery`, { method: "POST",
+      body: JSON.stringify({ structuredAggregationQuery: { structuredQuery: q, aggregations: [{ alias: "n", count: {} }] } }) });
+    const total = Number(((c[0] || {}).result || {}).aggregateFields?.n?.integerValue || 0);
+    let ultima = null;
+    if (total > 0) {
+      try {
+        const l = await fsFetch(pid, `${parent}:runQuery`, { method: "POST",
+          body: JSON.stringify({ structuredQuery: Object.assign({}, q, { orderBy: [{ field: { fieldPath: "ts" }, direction: "DESCENDING" }], limit: 1 }) }) });
+        const d = l.find(x => x.document);
+        if (d) ultima = fsDoc(d.document).data.ts || null;
+      } catch (e) {}
+    }
+    return { total, ultima };
+  }
+  // Devuelve {empty, docs:[{id,data}]} igual que lo usaba el código con el SDK
+  async function fetchDocs(entry, col, max) {
+    if (gToken) {
+      const docs = await restList(entry.firebaseConfig.projectId, col, max);
+      return { empty: !docs.length, docs };
+    }
+    const q = max ? query(collection(db, col), limit(max)) : collection(db, col);
+    const snap = await getDocs(q);
+    const docs = []; snap.forEach(d => docs.push({ id: d.id, data: d.data() }));
+    return { empty: snap.empty, docs };
+  }
+
   async function preflightAuth(entry) {
     const pid = entry.firebaseConfig.projectId;
     const consola = `https://console.firebase.google.com/project/${pid}/authentication/settings`;
@@ -904,7 +1021,7 @@
 
     let rec;
     try {
-      rec = await ensureSignedIn(entry);
+      rec = gToken ? null : await ensureSignedIn(entry);
     } catch (err) {
       const msg = `No se pudo conectar con "${entry.name}": ${err.message || err}`;
       document.getElementById("clientes-tbody").innerHTML =
@@ -914,7 +1031,7 @@
       return;
     }
 
-    db = getFirestore(rec.app);
+    if (rec) db = getFirestore(rec.app);
     document.getElementById("clientes-tbody").innerHTML =
       '<tr><td colspan="5" class="loading">Cargando usuarios…</td></tr>';
     document.getElementById("accesos-panel").innerHTML =
@@ -926,14 +1043,14 @@
   async function loadClientes(entry) {
     const tbody = document.getElementById("clientes-tbody");
     try {
-      const snap = await getDocs(collection(db, entry.collections.clientes));
+      const snap = await fetchDocs(entry, entry.collections.clientes);
       if (snap.empty) {
         tbody.innerHTML = `<tr><td colspan="5" class="empty-state">No hay usuarios en "${entry.collections.clientes}" todavía.${entry.note ? "<br>" + entry.note : ""}</td></tr>`;
         updateStats([]);
         return;
       }
       const rows = [];
-      snap.forEach(doc => rows.push({ id: doc.id, ...doc.data() }));
+      snap.docs.forEach(doc => rows.push({ id: doc.id, ...doc.data }));
 
       // orden: más nuevos primero si hay creadoEn
       rows.sort((a, b) => {
@@ -983,7 +1100,7 @@
         rows.forEach(r => {
           if (!r.uid) return;
           const cellId = `ventas-${r.id.replace(/[^a-zA-Z0-9]/g,'_')}`;
-          cargarVentasCliente(r.uid, cellId);
+          cargarVentasCliente(r.uid, cellId, entry);
         });
       }
     } catch (err) {
@@ -993,7 +1110,18 @@
     }
   }
 
-  async function cargarVentasCliente(uid, cellId) {
+  async function cargarVentasCliente(uid, cellId, entry) {
+    if (gToken && entry) {
+      const el0 = document.getElementById(cellId);
+      try {
+        const v = await restVentas(entry.firebaseConfig.projectId, uid);
+        if (!el0) return;
+        if (!v.total) { el0.textContent = 'sin ventas'; el0.style.color = 'var(--warn)'; return; }
+        el0.textContent = `${v.total} venta${v.total !== 1 ? 's' : ''}${v.ultima ? ' · ' + fmtDate(v.ultima) : ''}`;
+        el0.style.color = 'var(--signal)';
+      } catch (e) { if (el0) { el0.textContent = 'error'; el0.style.color = 'var(--danger)'; } }
+      return;
+    }
     try {
       const ventasRef = collection(db, 'negocios', uid, 'ventas');
 
@@ -1049,14 +1177,13 @@
   async function loadAccesos(entry) {
     const panel = document.getElementById("accesos-panel");
     try {
-      const q = query(collection(db, entry.collections.accesos), limit(50));
-      const snap = await getDocs(q);
+      const snap = await fetchDocs(entry, entry.collections.accesos, 50);
       if (snap.empty) {
         panel.innerHTML = '<div class="empty-state">Todavía no hay registros en "accesos", o la colección tiene otro nombre/estructura.</div>';
         return;
       }
       const docs = [];
-      snap.forEach(doc => docs.push({ id: doc.id, data: doc.data() }));
+      snap.docs.forEach(doc => docs.push({ id: doc.id, data: doc.data }));
 
       // intento de orden por campo tipo fecha, si existe
       const dateKeys = ["timestamp", "ts", "fecha", "fecha_acceso", "creadoEn", "createdAt", "date"];
@@ -1240,9 +1367,26 @@
   // ============================================================
   let bootAuth;
 
+  function mostrarApp(email) {
+    document.getElementById("auth-screen").style.display = "none";
+    document.getElementById("app").style.display = "block";
+    document.getElementById("admin-email").textContent = email;
+    populateAppSelect();
+    currentAppEntry = APPS[0];
+    loadAppData(currentAppEntry);
+  }
+  const cidBox = document.getElementById("cid-box"), cidInput = document.getElementById("cid-input");
+  if (!getClientId()) cidBox.style.display = "block";
+
   document.getElementById("btn-signin").addEventListener("click", async () => {
     const errEl = document.getElementById("auth-error");
     errEl.style.display = "none";
+    if (cidInput.value.trim()) { try { localStorage.setItem(CID_KEY, cidInput.value.trim()); } catch (e) {} }
+    if (getClientId()) {
+      try { mostrarApp(await gSignIn()); }
+      catch (err) { errEl.textContent = "No se pudo iniciar sesión: " + (err.message || err); errEl.style.display = "block"; }
+      return;
+    }
     try {
       bootAuth = getProjectAuth(APPS[0]);
       const provider = new GoogleAuthProvider();
@@ -1265,6 +1409,10 @@
   });
 
   document.getElementById("btn-signout").addEventListener("click", () => {
+    if (gToken) {
+      try { google.accounts.oauth2.revoke(gToken, () => {}); } catch (e) {}
+      gToken = null; location.reload(); return;
+    }
     if (bootAuth) signOut(bootAuth.auth);
   });
 
