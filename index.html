@@ -741,11 +741,38 @@
 
   const PENDING_REDIRECT_KEY = "panel_pending_app_id";
 
+  async function preflightAuth(entry) {
+    const pid = entry.firebaseConfig.projectId;
+    const consola = `https://console.firebase.google.com/project/${pid}/authentication/settings`;
+    try {
+      const r = await fetch(
+        "https://identitytoolkit.googleapis.com/v1/accounts:createAuthUri?key=" + encodeURIComponent(entry.firebaseConfig.apiKey),
+        { method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ providerId: "google.com", continueUri: location.origin + "/" }) });
+      const j = await r.json();
+      if (j && j.authUri) return null;
+      const m = (j && j.error && j.error.message) || "";
+      if (/INVALID_CONTINUE_URI|UNAUTHORIZED_DOMAIN/i.test(m))
+        return `El dominio ${location.hostname} no está autorizado en el proyecto "${pid}". Solución: Firebase Console → Authentication → Settings → Authorized domains → agregar ${location.hostname}. (${consola})`;
+      if (/OPERATION_NOT_ALLOWED|CONFIGURATION_NOT_FOUND/i.test(m))
+        return `El inicio de sesión con Google no está habilitado (o Authentication no está activado) en el proyecto "${pid}". Solución: Firebase Console → Authentication → Sign-in method → Google → Habilitar. (${consola})`;
+      if (/API_KEY|API key/i.test(m))
+        return `La API key de "${entry.name}" no es válida o está restringida (${m}).`;
+      return null; // otro error: dejamos que siga el flujo normal
+    } catch (e) { return null; }
+  }
+
   async function ensureSignedIn(entry) {
     const rec = getProjectAuth(entry);
     if (rec.auth.currentUser && rec.auth.currentUser.email === ADMIN_EMAIL) {
       return rec;
     }
+    // Chequeo previo: si el dominio del panel no está autorizado en el
+    // proyecto Firebase de esa app (o Google no está habilitado), el popup
+    // se abre en una página de error y te "lleva a cualquier lado".
+    // Acá lo detectamos antes y mostramos qué hay que corregir.
+    const pre = await preflightAuth(entry);
+    if (pre) throw new Error(pre);
     const provider = new GoogleAuthProvider();
     try {
       const result = await signInWithPopup(rec.auth, provider);
