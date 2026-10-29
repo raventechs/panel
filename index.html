@@ -443,7 +443,8 @@
         messagingSenderId: "150404378851",
         appId: "1:150404378851:web:940ba835e20c4edeb215d6"
       },
-      collections: { clientes: "usuarios", accesos: "accesos" }
+      collections: { clientes: "usuarios", accesos: "accesos" },
+      bkTree: { usuarios: [], invitaciones: [], vehicles: ["docs", "services", "insumos", "revisiones"] }
     },
     {
       id: "securepro",
@@ -893,13 +894,39 @@
     return { formato: "firestore-rest-v1", app: entry.name, projectId: pid, exportadoEn: new Date().toISOString(),
              totalDocumentos: out.length, porColeccion, documentos: out };
   }
+  // Alternativa sin login único: usa la sesión del admin ya abierta con el SDK
+  // y un árbol de colecciones conocido (entry.bkTree). Solo lectura.
+  function serSdk(v) {
+    if (v && typeof v.toDate === "function") return { __ts: [v.seconds, v.nanoseconds] };
+    if (Array.isArray(v)) return v.map(serSdk);
+    if (v && typeof v === "object") { const o = {}; for (const k of Object.keys(v)) o[k] = serSdk(v[k]); return o; }
+    return v;
+  }
+  async function fullBackupSdk(entry, onProgress) {
+    const out = [], porColeccion = {};
+    for (const [top, subs] of Object.entries(entry.bkTree)) {
+      const snap = await getDocs(collection(db, top));
+      for (const d of snap.docs) {
+        out.push({ path: `${top}/${d.id}`, data: serSdk(d.data()) }); porColeccion[top] = (porColeccion[top] || 0) + 1;
+        if (onProgress) onProgress(out.length);
+        for (const sub of subs) {
+          const ss = await getDocs(collection(db, top, d.id, sub));
+          ss.docs.forEach(x => { out.push({ path: `${top}/${d.id}/${sub}/${x.id}`, data: serSdk(x.data()) }); porColeccion[`${top}/${sub}`] = (porColeccion[`${top}/${sub}`] || 0) + 1; });
+          if (onProgress) onProgress(out.length);
+        }
+      }
+    }
+    return { formato: "firestore-sdk-v1", app: entry.name, projectId: entry.firebaseConfig.projectId, exportadoEn: new Date().toISOString(),
+             totalDocumentos: out.length, porColeccion, documentos: out };
+  }
   document.getElementById("btn-fullbk").addEventListener("click", async () => {
     const st = document.getElementById("fullbk-status");
-    if (!gToken) { st.textContent = "Requiere el login único (Client ID)."; return; }
     const entry = currentAppEntry || APPS[0];
+    if (!gToken && !(entry.bkTree && db)) { st.textContent = "Requiere el login único (Client ID)."; return; }
     try {
       st.textContent = "Leyendo…";
-      const bk = await fullBackup(entry, n => { st.textContent = n + " documentos…"; });
+      const bk = gToken ? await fullBackup(entry, n => { st.textContent = n + " documentos…"; })
+                        : await fullBackupSdk(entry, n => { st.textContent = n + " documentos…"; });
       const blob = new Blob([JSON.stringify(bk)], { type: "application/json" });
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
