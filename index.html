@@ -307,6 +307,7 @@
       </div>
       <button class="btn-add-app" id="btn-open-apps" title="Agregar / gestionar apps">+</button>
       <button class="btn-add-app" id="btn-fullbk" title="Descargar copia completa de los datos de esta app (solo lectura)" style="width:auto;padding:0 12px;font-size:12px;">⬇ Copia completa</button>
+      <button class="btn-add-app" id="btn-sharebk" title="Compartir la última copia (Drive, Gmail, WhatsApp…)" style="width:auto;padding:0 12px;font-size:12px;display:none;margin-left:6px;">📤 Compartir copia</button>
       <span id="fullbk-status" style="font-size:11px;color:var(--muted);margin-left:8px;"></span>
     </div>
     <div class="topbar-right">
@@ -919,6 +920,14 @@
     return { formato: "firestore-sdk-v1", app: entry.name, projectId: entry.firebaseConfig.projectId, exportadoEn: new Date().toISOString(),
              totalDocumentos: out.length, porColeccion, documentos: out };
   }
+  document.getElementById("btn-sharebk").addEventListener("click", async () => {
+    const st = document.getElementById("fullbk-status"), f = window.__lastBk;
+    if (!f) return;
+    try {
+      if (navigator.canShare && navigator.canShare({ files: [f] })) await navigator.share({ files: [f], title: f.name });
+      else st.textContent = "Este navegador no permite compartir archivos: abrí el panel en Chrome (no dentro de otra app).";
+    } catch (e) { if (e.name !== "AbortError") st.textContent = "No se pudo compartir: " + (e.message || e); }
+  });
   document.getElementById("btn-fullbk").addEventListener("click", async () => {
     const st = document.getElementById("fullbk-status");
     const entry = currentAppEntry || APPS[0];
@@ -928,9 +937,12 @@
       const bk = gToken ? await fullBackup(entry, n => { st.textContent = n + " documentos…"; })
                         : await fullBackupSdk(entry, n => { st.textContent = n + " documentos…"; });
       const blob = new Blob([JSON.stringify(bk)], { type: "application/json" });
+      const fname = `copia-${entry.id}-${new Date().toISOString().slice(0,16).replace(/[:T]/g,"-")}.json`;
+      window.__lastBk = new File([blob], fname, { type: "application/json" });
+      document.getElementById("btn-sharebk").style.display = "inline-block";
       const a = document.createElement("a");
       a.href = URL.createObjectURL(blob);
-      a.download = `copia-${entry.id}-${new Date().toISOString().slice(0,16).replace(/[:T]/g,"-")}.json`;
+      a.download = fname;
       document.body.appendChild(a); a.click(); a.remove();
       st.textContent = `✔ ${bk.totalDocumentos} documentos (` + Object.entries(bk.porColeccion).map(([k,v]) => k + ":" + v).join(", ") + ")";
     } catch (e) { st.textContent = "Error: " + (e.message || e); }
