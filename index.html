@@ -306,6 +306,8 @@
         <select id="app-select"></select>
       </div>
       <button class="btn-add-app" id="btn-open-apps" title="Agregar / gestionar apps">+</button>
+      <button class="btn-add-app" id="btn-fullbk" title="Descargar copia completa de los datos de esta app (solo lectura)" style="width:auto;padding:0 12px;font-size:12px;">⬇ Copia completa</button>
+      <span id="fullbk-status" style="font-size:11px;color:var(--muted);margin-left:8px;"></span>
     </div>
     <div class="topbar-right">
       <span id="admin-email"></span>
@@ -857,6 +859,55 @@
     const docs = []; snap.forEach(d => docs.push({ id: d.id, data: d.data() }));
     return { empty: snap.empty, docs };
   }
+
+  // Copia completa (solo lectura): recorre TODAS las colecciones y subcolecciones
+  // de la app y descarga un JSON con los valores tal cual (sin perder tipos).
+  async function fsListCollectionIds(pid, parentPath) {
+    const ids = []; let tok = "";
+    do {
+      const j = await fsFetch(pid, `${FS(pid)}${parentPath ? "/" + parentPath : ""}:listCollectionIds`,
+        { method: "POST", body: JSON.stringify({ pageSize: 100, pageToken: tok || undefined }) });
+      (j.collectionIds || []).forEach(x => ids.push(x));
+      tok = j.nextPageToken || "";
+    } while (tok);
+    return ids;
+  }
+  async function fullBackup(entry, onProgress) {
+    const pid = entry.firebaseConfig.projectId, base = FS(pid) + "/";
+    const out = []; const porColeccion = {};
+    async function dumpCollection(path) {
+      let tok = "";
+      do {
+        const j = await fsFetch(pid, `${FS(pid)}/${path}?pageSize=300&showMissing=true${tok ? "&pageToken=" + encodeURIComponent(tok) : ""}`);
+        for (const d of (j.documents || [])) {
+          const rel = d.name.split("/documents/")[1];
+          out.push({ path: rel, fields: d.fields || null, createTime: d.createTime, updateTime: d.updateTime });
+          const top = rel.split("/")[0]; porColeccion[top] = (porColeccion[top] || 0) + 1;
+          if (onProgress) onProgress(out.length);
+          for (const sub of await fsListCollectionIds(pid, rel)) await dumpCollection(rel + "/" + sub);
+        }
+        tok = j.nextPageToken || "";
+      } while (tok);
+    }
+    for (const c of await fsListCollectionIds(pid, "")) await dumpCollection(c);
+    return { formato: "firestore-rest-v1", app: entry.name, projectId: pid, exportadoEn: new Date().toISOString(),
+             totalDocumentos: out.length, porColeccion, documentos: out };
+  }
+  document.getElementById("btn-fullbk").addEventListener("click", async () => {
+    const st = document.getElementById("fullbk-status");
+    if (!gToken) { st.textContent = "Requiere el login único (Client ID)."; return; }
+    const entry = currentAppEntry || APPS[0];
+    try {
+      st.textContent = "Leyendo…";
+      const bk = await fullBackup(entry, n => { st.textContent = n + " documentos…"; });
+      const blob = new Blob([JSON.stringify(bk)], { type: "application/json" });
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(blob);
+      a.download = `copia-${entry.id}-${new Date().toISOString().slice(0,16).replace(/[:T]/g,"-")}.json`;
+      document.body.appendChild(a); a.click(); a.remove();
+      st.textContent = `✔ ${bk.totalDocumentos} documentos (` + Object.entries(bk.porColeccion).map(([k,v]) => k + ":" + v).join(", ") + ")";
+    } catch (e) { st.textContent = "Error: " + (e.message || e); }
+  });
 
   async function preflightAuth(entry) {
     const pid = entry.firebaseConfig.projectId;
