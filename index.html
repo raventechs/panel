@@ -444,8 +444,7 @@
         messagingSenderId: "150404378851",
         appId: "1:150404378851:web:940ba835e20c4edeb215d6"
       },
-      collections: { clientes: "usuarios", accesos: "accesos" },
-      bkTree: { usuarios: [], invitaciones: [], vehicles: ["docs", "services", "insumos", "revisiones"] }
+      collections: { clientes: "usuarios", accesos: "accesos" }
     },
     {
       id: "securepro",
@@ -699,6 +698,33 @@
     }
   ];
 
+  // Árbol de colecciones conocido por app (para la copia completa sin login único).
+  // Con el login único la copia recorre TODO sin depender de esta lista.
+  const L = {};
+  const BK_TREES = {
+    carnear:   { carnearLinks: L, clientes: L, errores: L, negocios: { productos: L, insumos: L, proveedores: L, ventas: L, gastos: L, sucursales: { ventas: L, gastos: L } } },
+    barbear:   { barbearLinks: L, clientes: L, errores: L, negocios: { productos: L, insumos: L, proveedores: L, barberos: L, ventas: L, gastos: L, turnos: L, sucursales: { ventas: L, gastos: L, turnos: L } } },
+    rodix:     { usuarios: L, invitaciones: L, errores: L, vehicles: { docs: L, services: L, insumos: L, revisiones: L } },
+    pizzar:    { negocios: { ventas: L, productos: L, insumos: L, cierres: L, gastos: L, comandas: L, configuracion: L, cajeros: L } },
+    panar:     { negocios: { ventas: L, productos: L, insumos: L, cierres: L, gastos: L, configuracion: L, cajeros: L } },
+    lavar:     { config: L, lavArLinks: L, empleados: L, ventas: L, gastos: L, fidelizacion: L, sucursales: { ventas: L, gastos: L, fidelizacion: L, empleados: L } },
+    securepro: { usuarios: L, clientes: L, eventos: L, negocios: L, presupuestos: L, productos: L, seguimiento: L },
+    comprazona:{ usuarios: L, categorias: L, empresas: { productos: L }, pedidos: L, productos: L, tenants: { pedidos: L } },
+    manejar:   { usuarios: { registros: L, pagos: L }, flotas: { registros: L }, pagos: L, registros: L },
+    gasar:     { tenants: L, auditoria: L, cargas: L, compras: L, ctaCte: L, ctaEnvases: L, ctaSaldos: L, gastos: L, marcas: L, movimientosCaja: L, movimientosStock: L, productos: L, provCte: L, provSaldos: L, revendedores: L, ubicaciones: L },
+    miagenda:  { usuarios: { tareas: L }, grupos: { tareas: L }, invitacionesGrupo: L },
+    saludar:   { usuarios: L, perfiles: { estudios: L, historial: L, medicamentos: L, medicos: L, miembros: L, turnos: L } },
+    legalar:   { usuarios: { historial: L }, causas: L, honorarios: L, historial: L },
+    charlar:   { usuarios: L },
+    ahorrar:   { usuarios: L, promociones: L, promos: L },
+    empresar:  { usuarios: { documentos: L } },
+    puntoventa:{ usuarios: L, negocios: L, ventas: L, gastos: L, clientes: L, empleados: L },
+    centralbotar: { usuarios: L, negocios: { conversaciones: { mensajes: L } }, conversaciones: { mensajes: L }, mensajes: L },
+    mtc:       { usuarios: { estudio: L, sesiones: L }, estudio: L, sesiones: L },
+    timbrear:  { edificios: { departamentos: L }, sesiones: { mensajes: L }, fcmTokens: L },
+    pelotear:  { errores: L }
+  };
+
   function loadApps() {
     let stored = [];
     try {
@@ -904,21 +930,23 @@
     return v;
   }
   async function fullBackupSdk(entry, onProgress) {
-    const out = [], porColeccion = {};
-    for (const [top, subs] of Object.entries(entry.bkTree)) {
-      const snap = await getDocs(collection(db, top));
+    const tree = entry.bkTree || BK_TREES[entry.id];
+    const out = [], porColeccion = {}, sinPermiso = [];
+    async function walk(path, subs) {                       // path = "a/b/c" (coleccion)
+      let snap;
+      try { snap = await getDocs(collection(db, ...path.split("/"))); }
+      catch (e) { sinPermiso.push(path + " (" + (e.code || e.message) + ")"); return; }
       for (const d of snap.docs) {
-        out.push({ path: `${top}/${d.id}`, data: serSdk(d.data()) }); porColeccion[top] = (porColeccion[top] || 0) + 1;
+        out.push({ path: path + "/" + d.id, data: serSdk(d.data()) });
+        const k = path.split("/").filter((_, i) => i % 2 === 0).join("/");
+        porColeccion[k] = (porColeccion[k] || 0) + 1;
         if (onProgress) onProgress(out.length);
-        for (const sub of subs) {
-          const ss = await getDocs(collection(db, top, d.id, sub));
-          ss.docs.forEach(x => { out.push({ path: `${top}/${d.id}/${sub}/${x.id}`, data: serSdk(x.data()) }); porColeccion[`${top}/${sub}`] = (porColeccion[`${top}/${sub}`] || 0) + 1; });
-          if (onProgress) onProgress(out.length);
-        }
+        for (const [sub, deeper] of Object.entries(subs)) await walk(path + "/" + d.id + "/" + sub, deeper);
       }
     }
+    for (const [top, subs] of Object.entries(tree)) await walk(top, subs);
     return { formato: "firestore-sdk-v1", app: entry.name, projectId: entry.firebaseConfig.projectId, exportadoEn: new Date().toISOString(),
-             totalDocumentos: out.length, porColeccion, documentos: out };
+             totalDocumentos: out.length, porColeccion, sinPermiso, documentos: out };
   }
   document.getElementById("btn-sharebk").addEventListener("click", async () => {
     const st = document.getElementById("fullbk-status"), f = window.__lastBk;
@@ -931,7 +959,7 @@
   document.getElementById("btn-fullbk").addEventListener("click", async () => {
     const st = document.getElementById("fullbk-status");
     const entry = currentAppEntry || APPS[0];
-    if (!gToken && !(entry.bkTree && db)) { st.textContent = "Requiere el login único (Client ID)."; return; }
+    if (!gToken && !((entry.bkTree || BK_TREES[entry.id]) && db)) { st.textContent = "Requiere el login único (Client ID)."; return; }
     try {
       st.textContent = "Leyendo…";
       const bk = gToken ? await fullBackup(entry, n => { st.textContent = n + " documentos…"; })
@@ -944,7 +972,8 @@
       a.href = URL.createObjectURL(blob);
       a.download = fname;
       document.body.appendChild(a); a.click(); a.remove();
-      st.textContent = `✔ ${bk.totalDocumentos} documentos (` + Object.entries(bk.porColeccion).map(([k,v]) => k + ":" + v).join(", ") + ")";
+      st.textContent = `✔ ${bk.totalDocumentos} documentos (` + Object.entries(bk.porColeccion).map(([k,v]) => k + ":" + v).join(", ") + ")"
+        + (bk.sinPermiso && bk.sinPermiso.length ? ` ⚠ ${bk.sinPermiso.length} colección(es) sin permiso de lectura: ` + bk.sinPermiso.slice(0, 4).join(", ") + (bk.sinPermiso.length > 4 ? "…" : "") + " — usá el login único para copiarlas." : "");
     } catch (e) { st.textContent = "Error: " + (e.message || e); }
   });
 
