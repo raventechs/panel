@@ -1,0 +1,16 @@
+{
+  "name": "RavenTechs · Panel de actividad",
+  "short_name": "Panel",
+  "description": "Resumen, usuarios y accesos recientes de cada app, con copia de datos para descargar.",
+  "start_url": "/panel/",
+  "scope": "/panel/",
+  "display": "standalone",
+  "background_color": "#0A0E13",
+  "theme_color": "#0A0E13",
+  "lang": "es",
+  "icons": [
+    { "src": "/panel/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/panel/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/panel/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
