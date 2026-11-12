@@ -615,7 +615,8 @@
         messagingSenderId: "471550179133",
         appId: "1:471550179133:web:3c06e945f81eb9fd477754"
       },
-      collections: { clientes: "usuarios", accesos: "errores" }
+      collections: { clientes: "usuarios", accesos: "errores" },
+      actividad: "acceso"
     },
     {
       id: "ahorrar",
@@ -1241,6 +1242,7 @@
           if (!(r.uid || r.id)) return;
           const cellId = `ventas-${r.id.replace(/[^a-zA-Z0-9]/g,'_')}`;
           if (entry.actividad === "rodix") cargarActividadRodix(r, cellId, entry);
+          else if (entry.actividad === "acceso") cargarActividadAcceso(r, cellId);
           else if (entry.actividad && typeof entry.actividad === "object") cargarActividadGenerica(r, cellId, entry);
           else cargarVentasCliente(r.uid || r.id, cellId, entry);
         });
@@ -1403,6 +1405,15 @@
     if (!r.n7total) return { t: `sin actividad en ${r.dias} d${ult}${dias !== null ? ` (hace ${dias} d)` : ""}`, c: "var(--warn)" };
     const monto = r.tieneMonto ? ` · $${Math.round(r.monto7).toLocaleString("es-AR")}` : "";
     return { t: `${r.partes.join(" · ")} (${r.dias} d)${monto}${ult}`, c: "var(--signal)" };
+  }
+  // Apps que solo registran el último acceso del usuario (campo ultimoAcceso en su doc)
+  function cargarActividadAcceso(row, cellId) {
+    const el = document.getElementById(cellId); if (!el) return;
+    const t = toDateAny(row.ultimoAcceso);
+    if (!t) { el.textContent = "sin accesos registrados aún"; el.style.color = "var(--muted)"; el.title = "Se registra cuando el usuario abre la app (versión nueva)."; return; }
+    const d = Math.round((Date.now() - t.getTime()) / 864e5);
+    el.textContent = `últ. acceso ${fmtDate(t)}${d > 0 ? ` (hace ${d} d)` : " (hoy)"}`;
+    el.style.color = d <= 7 ? "var(--signal)" : "var(--warn)";
   }
   async function cargarActividadGenerica(row, cellId, entry) {
     const el = document.getElementById(cellId); if (!el) return;
