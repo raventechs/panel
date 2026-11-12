@@ -435,7 +435,7 @@
         appId: "1:982486541527:web:9a7db609c7a983fc3dbc92"
       },
       collections: { clientes: "clientes", accesos: "accesos" },
-      hasVentas: true
+      actividad: { fuentes: [{ label: "ventas", sub: "negocios/{uid}/ventas", suc: "negocios/{uid}/sucursales", ts: "ts", monto: "total" }] }
     },
     {
       id: "rodix",
@@ -475,7 +475,8 @@
         messagingSenderId: "1064006581602",
         appId: "1:1064006581602:web:fb5f0eea1dcff93d7a003b"
       },
-      collections: { clientes: "config", accesos: "accesos" }
+      collections: { clientes: "config", accesos: "accesos" },
+      actividad: { fuentes: [{ label: "lavados", top: "ventas", porSuc: { col: "sucursales", ownerField: "ownerUid", field: "sucursalId" }, ts: "fecha", monto: "precio" }] }
     },
     {
       id: "pizzar",
@@ -488,7 +489,8 @@
         messagingSenderId: "688726516053",
         appId: "1:688726516053:web:2e11e63aec82225e82cfdc"
       },
-      collections: { clientes: "usuarios", accesos: "accesos" }
+      collections: { clientes: "usuarios", accesos: "accesos" },
+      actividad: { fuentes: [{ label: "ventas", sub: "negocios/{uid}/ventas", suc: "negocios/{uid}/sucursales", ts: "ts", monto: "total" }] }
     },
     {
       id: "panar",
@@ -501,7 +503,8 @@
         messagingSenderId: "984331564649",
         appId: "1:984331564649:web:a58cea3d04fdecccaa14f8"
       },
-      collections: { clientes: "usuarios", accesos: "accesos" }
+      collections: { clientes: "usuarios", accesos: "accesos" },
+      actividad: { fuentes: [{ label: "ventas", sub: "negocios/{uid}/ventas", suc: "negocios/{uid}/sucursales", ts: "ts", monto: "total" }] }
     },
     {
       id: "barbear",
@@ -515,7 +518,7 @@
         appId: "1:886220140963:web:27658c2ee7a45618afea16"
       },
       collections: { clientes: "clientes", accesos: "accesos" },
-      hasVentas: true
+      actividad: { fuentes: [{ label: "ventas", sub: "negocios/{uid}/ventas", suc: "negocios/{uid}/sucursales", ts: "ts", monto: "total" }, { label: "turnos", sub: "negocios/{uid}/turnos", suc: "negocios/{uid}/sucursales", ts: "fecha" }] }
     },
     {
       id: "comprazona",
@@ -645,7 +648,8 @@
         messagingSenderId: "229168693051",
         appId: "1:229168693051:web:9dcb7d95f39edc4c17011e"
       },
-      collections: { clientes: "negocios", accesos: "errores" }
+      collections: { clientes: "negocios", accesos: "errores" },
+      actividad: { fuentes: [{ label: "ventas", top: "ventas", field: "negocioId", from: "id", ts: "createdAt", monto: "importe" }] }
     },
     {
       id: "centralbotar",
@@ -699,7 +703,8 @@
         appId: "1:822223841367:web:f23b1953bfed3d0ef05b12"
       },
       collections: { clientes: "usuarios", accesos: "errores" },
-      note:"PeloteAR funciona con su propio servidor (Railway) y casi no usa Firestore: es normal que no haya usuarios para listar aquí."
+      note:"PeloteAR funciona con su propio servidor (Railway) y casi no usa Firestore: es normal que no haya usuarios para listar aquí.",
+      actividad: { fuentes: [{ label: "reservas", sub: "usuarios/{uid}/reservas", ts: "fecha", monto: "precio" }, { label: "ventas buffet", sub: "usuarios/{uid}/ventas", ts: "fecha", monto: "total" }] }
     }
   ];
 
@@ -1197,7 +1202,7 @@
         const ventasCellId = `ventas-${r.id.replace(/[^a-zA-Z0-9]/g,'_')}`;
         const tieneAct = entry.hasVentas || entry.actividad;
         const ventasCell = tieneAct
-          ? (r.uid
+          ? ((r.uid || r.id)
               ? `<span id="${ventasCellId}" class="mono" style="color:var(--muted);">cargando…</span>`
               : `<span class="mono" style="color:var(--muted);font-size:11px;">sin datos aún</span>`)
           : `<span style="color:var(--muted);">—</span>`;
@@ -1223,10 +1228,11 @@
       // Cargar ventas reales por cliente (progresivo, no bloquea la tabla)
       if (entry.hasVentas || entry.actividad) {
         rows.forEach(r => {
-          if (!r.uid) return;
+          if (!(r.uid || r.id)) return;
           const cellId = `ventas-${r.id.replace(/[^a-zA-Z0-9]/g,'_')}`;
           if (entry.actividad === "rodix") cargarActividadRodix(r, cellId, entry);
-          else cargarVentasCliente(r.uid, cellId, entry);
+          else if (entry.actividad && typeof entry.actividad === "object") cargarActividadGenerica(r, cellId, entry);
+          else cargarVentasCliente(r.uid || r.id, cellId, entry);
         });
       }
     } catch (err) {
@@ -1294,7 +1300,7 @@
         el.title = "Usa los vehículos del dueño de la flota; su actividad se ve en la fila del dueño.";
         return;
       }
-      const vehs = await rodixVehiculos(entry, row.uid);
+      const vehs = await rodixVehiculos(entry, row.uid || row.id);
       const regs = [];
       for (const v of vehs.slice(0, RODIX_MAX_VEH)) {
         const o = {};
@@ -1303,6 +1309,96 @@
       }
       const x = rodixTexto(rodixResumen(vehs, regs));
       el.textContent = x.t; el.style.color = x.c; el.title = x.tip || "";
+    } catch (e) { el.textContent = "error"; el.style.color = "var(--danger)"; }
+  }
+
+
+  // ---- Actividad genérica (apps comerciales): ventas/turnos/reservas REALES ----
+  // Cada app declara en `actividad.fuentes` dónde guarda sus datos. Se ignoran los
+  // registros de Modo Práctica (_demo:true). Solo lectura.
+  const ACT_DIAS = 7, ACT_LIM = 300, ACT_MAX_SUC = 5;
+  function actRuta(t, uid) { return t.replace("{uid}", uid); }
+  async function actListSub(entry, path, tsField) {
+    const pid = entry.firebaseConfig.projectId, parts = path.split("/"), coll = parts.pop();
+    if (gToken) {
+      const parent = parts.length ? `${FS(pid)}/${parts.join("/")}` : FS(pid);
+      const res = await fsFetch(pid, `${parent}:runQuery`, { method: "POST", body: JSON.stringify({ structuredQuery: {
+        from: [{ collectionId: coll }], orderBy: [{ field: { fieldPath: tsField }, direction: "DESCENDING" }], limit: ACT_LIM } }) });
+      return res.filter(x => x.document).map(x => fsDoc(x.document));
+    }
+    const snap = await getDocs(query(collection(db, ...path.split("/")), orderBy(tsField, "desc"), limit(ACT_LIM)));
+    const out = []; snap.forEach(d => out.push({ id: d.id, data: d.data() })); return out;
+  }
+  async function actListTop(entry, col, field, val) {
+    const pid = entry.firebaseConfig.projectId;
+    if (gToken) {
+      const res = await fsFetch(pid, `${FS(pid)}:runQuery`, { method: "POST", body: JSON.stringify({ structuredQuery: {
+        from: [{ collectionId: col }],
+        where: { fieldFilter: { field: { fieldPath: field }, op: "EQUAL", value: { stringValue: val } } }, limit: ACT_LIM } }) });
+      return res.filter(x => x.document).map(x => fsDoc(x.document));
+    }
+    const snap = await getDocs(query(collection(db, col), where(field, "==", val), limit(ACT_LIM)));
+    const out = []; snap.forEach(d => out.push({ id: d.id, data: d.data() })); return out;
+  }
+  async function actDocsFuente(entry, f, row) {
+    const uid = row.uid || row.id;
+    if (f.sub) {
+      const paths = [actRuta(f.sub, uid)];
+      if (f.suc) {
+        try {
+          const sucs = await (async () => {
+            if (gToken) return restList(entry.firebaseConfig.projectId, actRuta(f.suc, uid), ACT_MAX_SUC);
+            const sn = await getDocs(query(collection(db, ...actRuta(f.suc, uid).split("/")), limit(ACT_MAX_SUC)));
+            const o = []; sn.forEach(d => o.push({ id: d.id, data: d.data() })); return o;
+          })();
+          const base = f.sub.split("/"); const coll = base.pop();
+          sucs.forEach(sc => paths.push(`${actRuta(f.suc, uid)}/${sc.id}/${coll}`));
+        } catch (e) {}
+      }
+      const lotes = await Promise.all(paths.map(pth => actListSub(entry, pth, f.ts).catch(() => [])));
+      return [].concat(...lotes);
+    }
+    if (f.porSuc) {
+      const sucs = await actListTop(entry, f.porSuc.col, f.porSuc.ownerField, uid);
+      const lotes = await Promise.all(sucs.slice(0, ACT_MAX_SUC).map(sc => actListTop(entry, f.top, f.porSuc.field, sc.id).catch(() => [])));
+      return [].concat(...lotes);
+    }
+    return actListTop(entry, f.top, f.field, f.from === "id" ? row.id : uid);
+  }
+  function actResumen(spec, lotes) {
+    const lim = Date.now() - ACT_DIAS * 864e5;
+    let n7total = 0, ultima = null, realTotal = 0, demoTotal = 0, monto7 = 0, tieneMonto = false;
+    const partes = [], tips = [];
+    spec.fuentes.forEach((f, i) => {
+      const docs = lotes[i] || [];
+      const real = docs.filter(d => !d.data._demo);
+      demoTotal += docs.length - real.length; realTotal += real.length;
+      let n7 = 0;
+      real.forEach(d => {
+        const t = toDateAny(d.data[f.ts]); if (!t) return;
+        if (!ultima || t > ultima) ultima = t;
+        if (t.getTime() >= lim) { n7++; if (f.monto) { monto7 += Number(d.data[f.monto]) || 0; tieneMonto = true; } }
+      });
+      n7total += n7; partes.push(`${n7} ${f.label}`);
+      tips.push(`${f.label}: ${real.length}${docs.length >= ACT_LIM ? "+" : ""} reales`);
+    });
+    return { n7total, ultima, realTotal, demoTotal, monto7, tieneMonto, partes, tip: tips.join(" · ") + (demoTotal ? ` · ${demoTotal} de práctica (no cuentan)` : "") };
+  }
+  function actTexto(r) {
+    const dias = r.ultima ? Math.round((Date.now() - r.ultima.getTime()) / 864e5) : null;
+    if (!r.realTotal) return { t: r.demoTotal ? "solo datos de práctica" : "sin movimientos todavía", c: "var(--warn)" };
+    const ult = r.ultima ? ` · últ. ${fmtDate(r.ultima)}` : "";
+    if (!r.n7total) return { t: `sin actividad en ${ACT_DIAS} d${ult}${dias !== null ? ` (hace ${dias} d)` : ""}`, c: "var(--warn)" };
+    const monto = r.tieneMonto ? ` · $${Math.round(r.monto7).toLocaleString("es-AR")}` : "";
+    return { t: `${r.partes.join(" · ")} (${ACT_DIAS} d)${monto}${ult}`, c: "var(--signal)" };
+  }
+  async function cargarActividadGenerica(row, cellId, entry) {
+    const el = document.getElementById(cellId); if (!el) return;
+    try {
+      const spec = entry.actividad;
+      const lotes = await Promise.all(spec.fuentes.map(f => actDocsFuente(entry, f, row).catch(() => [])));
+      const x = actTexto(actResumen(spec, lotes));
+      el.textContent = x.t; el.style.color = x.c; el.title = actResumen(spec, lotes).tip;
     } catch (e) { el.textContent = "error"; el.style.color = "var(--danger)"; }
   }
 
