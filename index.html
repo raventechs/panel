@@ -462,7 +462,8 @@
         messagingSenderId: "3470750973",
         appId: "1:3470750973:web:f3d029ed18093ecaf1ba94"
       },
-      collections: { clientes: "usuarios", accesos: "accesos" }
+      collections: { clientes: "usuarios", accesos: "accesos" },
+      actividad: { dias: 30, fuentes: [{ label: "clientes", top: "clientes", field: "uid", ts: "createdAt" }, { label: "presupuestos", top: "presupuestos", field: "uid", ts: "createdAt", monto: "total" }, { label: "eventos", top: "eventos", field: "uid", ts: "createdAt" }] }
     },
     {
       id: "lavar",
@@ -544,7 +545,8 @@
         messagingSenderId: "409587508261",
         appId: "1:409587508261:web:15e0e6f6f28f18dfd90bcc"
       },
-      collections: { clientes: "usuarios", accesos: "errores" }
+      collections: { clientes: "usuarios", accesos: "errores" },
+      actividad: { dias: 30, fuentes: [{ label: "registros", sub: "usuarios/{uid}/registros", ts: ["ts","fecha"] }] }
     },
     {
       id: "gasar",
@@ -557,7 +559,8 @@
         messagingSenderId: "836541879587",
         appId: "1:836541879587:web:7ffc02bf08c957179b6896"
       },
-      collections: { clientes: "tenants", accesos: "errores" }
+      collections: { clientes: "tenants", accesos: "errores" },
+      actividad: { dias: 7, fuentes: [{ label: "ventas", sub: "tenants/{uid}/ventas", ts: ["tsServer","ts"], monto: "total" }] }
     },
     {
       id: "miagenda",
@@ -570,7 +573,8 @@
         messagingSenderId: "626485085205",
         appId: "1:626485085205:web:1be15baf1d7ab62676ba1c"
       },
-      collections: { clientes: "usuarios", accesos: "errores" }
+      collections: { clientes: "usuarios", accesos: "errores" },
+      actividad: { dias: 14, fuentes: [{ label: "tareas", sub: "usuarios/{uid}/tareas", ts: ["createdAt","fecha"] }] }
     },
     {
       id: "saludar",
@@ -583,7 +587,8 @@
         messagingSenderId: "72976839510",
         appId: "1:72976839510:web:1c08a90e3730748e03dcf7"
       },
-      collections: { clientes: "perfiles", accesos: "errores" }
+      collections: { clientes: "perfiles", accesos: "errores" },
+      actividad: { dias: 30, fuentes: [{ label: "medicamentos", sub: "perfiles/{uid}/medicamentos", ts: ["createdAt","creado","ts"] }, { label: "turnos", sub: "perfiles/{uid}/turnos", ts: ["createdAt","creado","fecha"] }, { label: "registros", sub: "perfiles/{uid}/historial", ts: ["createdAt","creado","ts","fecha"] }] }
     },
     {
       id: "legalar",
@@ -596,7 +601,8 @@
         messagingSenderId: "340858674664",
         appId: "1:340858674664:web:39a0fc7e823587440c585d"
       },
-      collections: { clientes: "usuarios", accesos: "errores" }
+      collections: { clientes: "usuarios", accesos: "errores" },
+      actividad: { dias: 30, fuentes: [{ label: "causas", top: "causas", field: "uid", ts: "createdAt" }, { label: "honorarios", top: "honorarios", field: "uid", ts: ["createdAt","fecha"] }, { label: "consultas", sub: "usuarios/{uid}/historial", ts: "creado" }] }
     },
     {
       id: "charlar",
@@ -622,7 +628,8 @@
         messagingSenderId: "207548156090",
         appId: "1:207548156090:web:bc3ed84cee6c67f6b21a83"
       },
-      collections: { clientes: "usuarios", accesos: "errores" }
+      collections: { clientes: "usuarios", accesos: "errores" },
+      actividad: { dias: 30, fuentes: [{ label: "promos publicadas", top: "promociones", field: "creadoPor", ts: "createdAt" }] }
     },
     {
       id: "empresar",
@@ -662,7 +669,8 @@
         messagingSenderId: "249537296056",
         appId: "1:249537296056:web:62fddedf252fb8f7eb664d"
       },
-      collections: { clientes: "negocios", accesos: "errores" }
+      collections: { clientes: "negocios", accesos: "errores" },
+      actividad: { dias: 7, fuentes: [{ label: "conversaciones", sub: "negocios/{uid}/conversaciones", ts: ["ultimoMensajeFecha","creadoEn"] }] }
     },
     {
       id: "mtc",
@@ -675,7 +683,8 @@
         messagingSenderId: "832906706205",
         appId: "1:832906706205:web:96e4165ffba23b4c5a35f4"
       },
-      collections: { clientes: "usuarios", accesos: "errores" }
+      collections: { clientes: "usuarios", accesos: "errores" },
+      actividad: { dias: 14, fuentes: [{ label: "sesiones", sub: "usuarios/{uid}/sesiones", ts: "fecha" }, { label: "estudio", sub: "usuarios/{uid}/estudio", ts: "createdAt" }] }
     },
     {
       id: "timbrear",
@@ -689,7 +698,8 @@
         appId: "1:707107985985:web:39126f161b9bb719f904c0"
       },
       collections: { clientes: "edificios", accesos: "errores" },
-      note:"TimbreAr no tiene registro de usuarios propio: se listan los edificios. Si falla, falta regla de lectura para el admin."
+      note:"TimbreAr no tiene registro de usuarios propio: se listan los edificios. Si falla, falta regla de lectura para el admin.",
+      actividad: { dias: 30, fuentes: [{ label: "llamadas", top: "sesiones", field: "edificioId", ts: "creadaEn", from: "id" }] }
     },
     {
       id: "pelotear",
@@ -1205,7 +1215,7 @@
           ? ((r.uid || r.id)
               ? `<span id="${ventasCellId}" class="mono" style="color:var(--muted);">cargando…</span>`
               : `<span class="mono" style="color:var(--muted);font-size:11px;">sin datos aún</span>`)
-          : `<span style="color:var(--muted);">—</span>`;
+          : `<span style="color:var(--muted);font-size:11px;" title="Esta app todavía no reporta actividad al panel">sin reporte</span>`;
 
         return `
           <tr>
@@ -1317,16 +1327,17 @@
   // Cada app declara en `actividad.fuentes` dónde guarda sus datos. Se ignoran los
   // registros de Modo Práctica (_demo:true). Solo lectura.
   const ACT_DIAS = 7, ACT_LIM = 300, ACT_MAX_SUC = 5;
+  function actTs(data, ts) { const c = Array.isArray(ts) ? ts : [ts]; for (const k of c) { const d = toDateAny(data[k]); if (d) return d; } return null; }
   function actRuta(t, uid) { return t.replace("{uid}", uid); }
   async function actListSub(entry, path, tsField) {
     const pid = entry.firebaseConfig.projectId, parts = path.split("/"), coll = parts.pop();
     if (gToken) {
       const parent = parts.length ? `${FS(pid)}/${parts.join("/")}` : FS(pid);
       const res = await fsFetch(pid, `${parent}:runQuery`, { method: "POST", body: JSON.stringify({ structuredQuery: {
-        from: [{ collectionId: coll }], orderBy: [{ field: { fieldPath: tsField }, direction: "DESCENDING" }], limit: ACT_LIM } }) });
+        from: [{ collectionId: coll }], ...(typeof tsField === "string" ? { orderBy: [{ field: { fieldPath: tsField }, direction: "DESCENDING" }] } : {}), limit: ACT_LIM } }) });
       return res.filter(x => x.document).map(x => fsDoc(x.document));
     }
-    const snap = await getDocs(query(collection(db, ...path.split("/")), orderBy(tsField, "desc"), limit(ACT_LIM)));
+    const snap = await getDocs(typeof tsField === "string" ? query(collection(db, ...path.split("/")), orderBy(tsField, "desc"), limit(ACT_LIM)) : query(collection(db, ...path.split("/")), limit(ACT_LIM)));
     const out = []; snap.forEach(d => out.push({ id: d.id, data: d.data() })); return out;
   }
   async function actListTop(entry, col, field, val) {
@@ -1366,7 +1377,8 @@
     return actListTop(entry, f.top, f.field, f.from === "id" ? row.id : uid);
   }
   function actResumen(spec, lotes) {
-    const lim = Date.now() - ACT_DIAS * 864e5;
+    const dias = spec.dias || ACT_DIAS;
+    const lim = Date.now() - dias * 864e5;
     let n7total = 0, ultima = null, realTotal = 0, demoTotal = 0, monto7 = 0, tieneMonto = false;
     const partes = [], tips = [];
     spec.fuentes.forEach((f, i) => {
@@ -1375,22 +1387,22 @@
       demoTotal += docs.length - real.length; realTotal += real.length;
       let n7 = 0;
       real.forEach(d => {
-        const t = toDateAny(d.data[f.ts]); if (!t) return;
+        const t = actTs(d.data, f.ts); if (!t) return;
         if (!ultima || t > ultima) ultima = t;
         if (t.getTime() >= lim) { n7++; if (f.monto) { monto7 += Number(d.data[f.monto]) || 0; tieneMonto = true; } }
       });
       n7total += n7; partes.push(`${n7} ${f.label}`);
       tips.push(`${f.label}: ${real.length}${docs.length >= ACT_LIM ? "+" : ""} reales`);
     });
-    return { n7total, ultima, realTotal, demoTotal, monto7, tieneMonto, partes, tip: tips.join(" · ") + (demoTotal ? ` · ${demoTotal} de práctica (no cuentan)` : "") };
+    return { dias, n7total, ultima, realTotal, demoTotal, monto7, tieneMonto, partes, tip: tips.join(" · ") + (demoTotal ? ` · ${demoTotal} de práctica (no cuentan)` : "") };
   }
   function actTexto(r) {
     const dias = r.ultima ? Math.round((Date.now() - r.ultima.getTime()) / 864e5) : null;
     if (!r.realTotal) return { t: r.demoTotal ? "solo datos de práctica" : "sin movimientos todavía", c: "var(--warn)" };
     const ult = r.ultima ? ` · últ. ${fmtDate(r.ultima)}` : "";
-    if (!r.n7total) return { t: `sin actividad en ${ACT_DIAS} d${ult}${dias !== null ? ` (hace ${dias} d)` : ""}`, c: "var(--warn)" };
+    if (!r.n7total) return { t: `sin actividad en ${r.dias} d${ult}${dias !== null ? ` (hace ${dias} d)` : ""}`, c: "var(--warn)" };
     const monto = r.tieneMonto ? ` · $${Math.round(r.monto7).toLocaleString("es-AR")}` : "";
-    return { t: `${r.partes.join(" · ")} (${ACT_DIAS} d)${monto}${ult}`, c: "var(--signal)" };
+    return { t: `${r.partes.join(" · ")} (${r.dias} d)${monto}${ult}`, c: "var(--signal)" };
   }
   async function cargarActividadGenerica(row, cellId, entry) {
     const el = document.getElementById(cellId); if (!el) return;
