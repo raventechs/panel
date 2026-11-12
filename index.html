@@ -389,7 +389,7 @@
             <th>Email</th>
             <th>Alta</th>
             <th>Funciones activas</th>
-            <th>Ventas</th>
+            <th>Actividad</th>
           </tr>
         </thead>
         <tbody id="clientes-tbody">
@@ -412,7 +412,7 @@
     signOut, onAuthStateChanged
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-auth.js";
   import {
-    getFirestore, collection, getDocs, query, limit, orderBy, getCountFromServer
+    getFirestore, collection, getDocs, query, limit, orderBy, getCountFromServer, where
   } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
 
   // ============================================================
@@ -448,7 +448,8 @@
         messagingSenderId: "150404378851",
         appId: "1:150404378851:web:940ba835e20c4edeb215d6"
       },
-      collections: { clientes: "usuarios", accesos: "accesos" }
+      collections: { clientes: "usuarios", accesos: "accesos" },
+      actividad: "rodix"
     },
     {
       id: "securepro",
@@ -1194,7 +1195,8 @@
           : '<span class="badge">sin datos</span>';
 
         const ventasCellId = `ventas-${r.id.replace(/[^a-zA-Z0-9]/g,'_')}`;
-        const ventasCell = entry.hasVentas
+        const tieneAct = entry.hasVentas || entry.actividad;
+        const ventasCell = tieneAct
           ? (r.uid
               ? `<span id="${ventasCellId}" class="mono" style="color:var(--muted);">cargando…</span>`
               : `<span class="mono" style="color:var(--muted);font-size:11px;">sin datos aún</span>`)
@@ -1211,7 +1213,7 @@
             <td class="email-cell" data-label="Email">${email}</td>
             <td class="date-cell" data-label="Alta">${fmtDate(altaOf(r))}</td>
             <td data-label="Funciones"><div class="badges">${featureBadges}</div></td>
-            <td class="date-cell" data-label="Ventas">${ventasCell}</td>
+            <td class="date-cell" data-label="Actividad">${ventasCell}</td>
           </tr>
         `;
       }).join("");
@@ -1219,11 +1221,12 @@
       updateStats(rows);
 
       // Cargar ventas reales por cliente (progresivo, no bloquea la tabla)
-      if (entry.hasVentas) {
+      if (entry.hasVentas || entry.actividad) {
         rows.forEach(r => {
           if (!r.uid) return;
           const cellId = `ventas-${r.id.replace(/[^a-zA-Z0-9]/g,'_')}`;
-          cargarVentasCliente(r.uid, cellId, entry);
+          if (entry.actividad === "rodix") cargarActividadRodix(r, cellId, entry);
+          else cargarVentasCliente(r.uid, cellId, entry);
         });
       }
     } catch (err) {
@@ -1231,6 +1234,76 @@
       tbody.innerHTML = `<tr><td colspan="5" class="empty-state">No se pudo leer la colección "${entry.collections.clientes}". Revisá las reglas de seguridad de Firestore (el admin necesita permiso de lectura).${entry.note ? "<br>" + entry.note : ""}<br><span class="mono" style="font-size:11px;">${err.message || err}</span></td></tr>`;
       updateStats([]);
     }
+  }
+
+
+  // ---- Actividad Rodix: vehículos activos + si se cargan datos ----
+  const RODIX_SUBS = ["docs", "services", "revisiones", "insumos"];
+  const RODIX_MAX_VEH = 15, RODIX_DIAS_ACTIVO = 30;
+  async function rodixVehiculos(entry, uid) {
+    const pid = entry.firebaseConfig.projectId;
+    let veh = [];
+    if (gToken) {
+      const res = await fsFetch(pid, `${FS(pid)}:runQuery`, { method: "POST", body: JSON.stringify({ structuredQuery: {
+        from: [{ collectionId: "vehicles" }],
+        where: { fieldFilter: { field: { fieldPath: "uid" }, op: "EQUAL", value: { stringValue: uid } } },
+        limit: 200 } }) });
+      veh = res.filter(x => x.document).map(x => fsDoc(x.document));
+    } else {
+      const snap = await getDocs(query(collection(db, "vehicles"), where("uid", "==", uid)));
+      snap.forEach(d => veh.push({ id: d.id, data: d.data() }));
+    }
+    return veh.filter(v => !v.data._demo);
+  }
+  async function rodixSub(entry, vid, sub) {
+    if (gToken) return restList(entry.firebaseConfig.projectId, `vehicles/${vid}/${sub}`, 100);
+    const snap = await getDocs(query(collection(db, "vehicles", vid, sub), limit(100)));
+    const out = []; snap.forEach(d => out.push({ id: d.id, data: d.data() })); return out;
+  }
+  function rodixResumen(vehs, regs) {
+    // vehs: vehículos reales; regs: {docs,services,revisiones,insumos} -> arrays de datos
+    const n = vehs.length;
+    let cargas = 0, ultima = null;
+    const tot = { docs: 0, services: 0, revisiones: 0, insumos: 0 };
+    const tocar = (d) => { const t = toDateAny(d && (d.createdAt || d.performedAt)); if (t && (!ultima || t > ultima)) ultima = t; };
+    vehs.forEach(v => tocar(v.data));
+    regs.forEach(r => RODIX_SUBS.forEach(k => { const a = r[k] || []; tot[k] += a.length; if (k !== "insumos") { cargas += a.length; a.forEach(x => tocar(x.data)); } }));
+    const dias = ultima ? (Date.now() - ultima.getTime()) / 864e5 : null;
+    let nivel;
+    if (!n) nivel = "sinVeh";
+    else if (!cargas) nivel = "sinDatos";
+    else if (dias !== null && dias > RODIX_DIAS_ACTIVO) nivel = "inactivo";
+    else nivel = "activo";
+    return { n, cargas, tot, ultima, dias, nivel };
+  }
+  function rodixTexto(r) {
+    const veh = `${r.n} vehículo${r.n !== 1 ? "s" : ""}`;
+    if (r.nivel === "sinVeh") return { t: "sin vehículos cargados", c: "var(--warn)", tip: "Se registró pero no cargó ningún vehículo propio (los de Modo Práctica no cuentan)." };
+    const tip = `Vencimientos: ${r.tot.docs} · Mantenimientos: ${r.tot.services} · Revisiones: ${r.tot.revisiones} · Insumos (checklist): ${r.tot.insumos}`;
+    if (r.nivel === "sinDatos") return { t: `${veh} · sin datos cargados`, c: "var(--warn)", tip };
+    const ult = r.ultima ? ` · últ. carga ${fmtDate(r.ultima)}` : "";
+    if (r.nivel === "inactivo") return { t: `${veh} · ${r.cargas} reg.${ult} (hace ${Math.round(r.dias)} d)`, c: "var(--warn)", tip };
+    return { t: `${veh} · ${r.cargas} reg.${ult}`, c: "var(--signal)", tip };
+  }
+  async function cargarActividadRodix(row, cellId, entry) {
+    const el = document.getElementById(cellId);
+    if (!el) return;
+    try {
+      if (row.rolFlota === "chofer") {
+        el.textContent = "chofer de una flota"; el.style.color = "var(--muted)";
+        el.title = "Usa los vehículos del dueño de la flota; su actividad se ve en la fila del dueño.";
+        return;
+      }
+      const vehs = await rodixVehiculos(entry, row.uid);
+      const regs = [];
+      for (const v of vehs.slice(0, RODIX_MAX_VEH)) {
+        const o = {};
+        await Promise.all(RODIX_SUBS.map(async k => { try { o[k] = await rodixSub(entry, v.id, k); } catch (e) { o[k] = []; } }));
+        regs.push(o);
+      }
+      const x = rodixTexto(rodixResumen(vehs, regs));
+      el.textContent = x.t; el.style.color = x.c; el.title = x.tip || "";
+    } catch (e) { el.textContent = "error"; el.style.color = "var(--danger)"; }
   }
 
   async function cargarVentasCliente(uid, cellId, entry) {
